@@ -58,6 +58,8 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/status":
             self.handle_status()
+        elif self.path in ["/", "/index.html", "/style.css", "/app.js"]:
+            self.handle_static_file()
         else:
             self.send_error_response(404, "Not Found")
 
@@ -90,6 +92,39 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
 
     def send_error_response(self, status_code, message):
         self.send_json_response({"error": message}, status_code)
+
+    def handle_static_file(self):
+        filename = self.path
+        if filename == "/":
+            filename = "/index.html"
+            
+        import os
+        # Serve from local workspace folder (current working directory)
+        file_path = os.path.join(os.getcwd(), filename.lstrip("/"))
+        
+        if not os.path.exists(file_path):
+            self.send_error_response(404, f"File {filename} not found")
+            return
+            
+        content_type = "text/plain"
+        if filename.endswith(".html"):
+            content_type = "text/html; charset=utf-8"
+        elif filename.endswith(".css"):
+            content_type = "text/css; charset=utf-8"
+        elif filename.endswith(".js"):
+            content_type = "application/javascript; charset=utf-8"
+            
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_cors_headers()
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error_response(500, f"Error reading file: {str(e)}")
 
     def handle_status(self):
         # Slightly fluctuate stats to make it look alive

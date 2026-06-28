@@ -50,11 +50,17 @@ const btnConfirmYes = document.getElementById("btn-confirm-yes");
 
 // Init
 window.addEventListener("DOMContentLoaded", () => {
-    // Load saved host if any
-    const savedHost = localStorage.getItem("router_host");
-    if (savedHost) {
-        routerHost = savedHost;
-        hostInput.value = savedHost;
+    const isLocalServer = !window.location.origin.startsWith("file://") && !window.location.origin.includes("github.io");
+    
+    if (isLocalServer) {
+        routerHost = window.location.origin;
+        hostInput.value = routerHost;
+    } else {
+        const savedHost = localStorage.getItem("router_host");
+        if (savedHost) {
+            routerHost = savedHost;
+            hostInput.value = savedHost;
+        }
     }
     
     // Bind Event Listeners
@@ -80,8 +86,12 @@ window.addEventListener("DOMContentLoaded", () => {
     btnConfirmCancel.addEventListener("click", handleConfirmCancel);
     btnConfirmYes.addEventListener("click", handleConfirmYes);
     
-    // Pre-fetch upstream versions in background
-    fetchUpstreamVersions();
+    // Auto-connect if hosted directly on the router API, otherwise pre-fetch in background
+    if (isLocalServer) {
+        handleConnect();
+    } else {
+        fetchUpstreamVersions();
+    }
 });
 
 // Logs helper
