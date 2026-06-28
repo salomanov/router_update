@@ -73,27 +73,31 @@ def get_service_status(service_name):
     # Fallback to checking active processes
     return get_process_status(proc_name)
 
+def get_opkg_package_version(package_name):
+    """Queries opkg status for a package and parses its version."""
+    try:
+        opkg_out = subprocess.check_output(["/opt/bin/opkg", "status", package_name], text=True)
+        for line in opkg_out.splitlines():
+            if line.startswith("Version:"):
+                return line.replace("Version:", "").strip()
+    except Exception:
+        pass
+    return None
+
 def get_installed_versions():
     """Retrieves installed versions of major packages."""
     versions = {}
     
-    # 1. tg-ws-proxy (via opkg)
-    try:
-        opkg_out = subprocess.check_output(["/opt/bin/opkg", "status", "tg-ws-proxy"], text=True)
-        for line in opkg_out.splitlines():
-            if line.startswith("Version:"):
-                versions["tg-ws-proxy"] = line.replace("Version:", "").strip()
-                break
-    except Exception:
-        versions["tg-ws-proxy"] = "unknown"
-        
-    if "tg-ws-proxy" not in versions or versions["tg-ws-proxy"] == "unknown":
+    # 1. tg-ws-proxy
+    tg_ver = get_opkg_package_version("tg-ws-proxy")
+    if not tg_ver:
         # Check if the binary is executable and check --version
         try:
             out = subprocess.check_output(["/opt/bin/tg-ws-proxy", "--version"], stderr=subprocess.STDOUT, text=True)
-            versions["tg-ws-proxy"] = out.strip()
+            tg_ver = out.strip()
         except Exception:
-            pass
+            tg_ver = "unknown"
+    versions["tg-ws-proxy"] = tg_ver
 
     # 2. usque (custom binary version command)
     try:
@@ -111,6 +115,32 @@ def get_installed_versions():
     except Exception as e:
         logging.error(f"Error checking usque version: {e}")
         versions["usque"] = "unknown"
+
+    # 3. mosquitto (registers as mosquitto-ssl in Entware/Keenetic)
+    mosq_ver = get_opkg_package_version("mosquitto-ssl")
+    if not mosq_ver:
+        mosq_ver = get_opkg_package_version("mosquitto")
+    versions["mosquitto"] = mosq_ver or "unknown"
+
+    # 4. lighttpd
+    versions["lighttpd"] = get_opkg_package_version("lighttpd") or "unknown"
+
+    # 5. dropbear
+    versions["dropbear"] = get_opkg_package_version("dropbear") or "unknown"
+
+    # 6. nfqws2 (registers as nfqws2-keenetic or nfqws-keenetic-web in Entware)
+    nfqws_ver = get_opkg_package_version("nfqws2-keenetic")
+    if not nfqws_ver:
+        nfqws_ver = get_opkg_package_version("nfqws-keenetic-web")
+    if not nfqws_ver:
+        nfqws_ver = get_opkg_package_version("nfqws2")
+    versions["nfqws2"] = nfqws_ver or "unknown"
+
+    # 7. tuya-mqtt-calibrator
+    if os.path.exists("/opt/scripts/tuya_mqtt_calibrator.py") or os.path.exists("/opt/usr/bin/tuya_mqtt_calibrator.py"):
+        versions["tuya-mqtt-calibrator"] = "installed"
+    else:
+        versions["tuya-mqtt-calibrator"] = "not installed"
 
     return versions
 

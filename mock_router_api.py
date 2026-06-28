@@ -19,7 +19,12 @@ mock_data = {
     },
     "versions": {
         "tg-ws-proxy": "0.5-1",
-        "usque": "v2.0.1"
+        "usque": "v2.0.1",
+        "mosquitto": "2.0.18-3",
+        "lighttpd": "1.4.79-1",
+        "dropbear": "2024.86-1",
+        "nfqws2": "1.2.3",
+        "tuya-mqtt-calibrator": "installed"
     },
     "services": {
         "dropbear": "running",

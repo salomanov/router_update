@@ -154,10 +154,10 @@ async function fetchRouterStatus(isRefresh = false) {
         
         const data = await response.json();
         
-        if (!isRefresh) {
+        if (!isConnected) {
             logToConsole("Система", "Успешно подключено к роутеру!", "success");
-            setConnectionState("online");
         }
+        setConnectionState("online");
         
         renderSystemStats(data.system);
         renderServicesTable(data.services, data.versions);
@@ -314,9 +314,20 @@ function renderServicesTable(services, versions) {
             } else if (upstream.latest) {
                 const hasUpdate = isUpdateAvailable(installedVersion, upstream.latest);
                 if (hasUpdate) {
-                    tdGitHub.innerHTML = `${upstream.latest} <span class="badge-update warning" onclick="triggerUpdate('${key}', '${upstream.latest}', '${upstream.url}')" title="Нажмите, чтобы обновить"><i class="fa-solid fa-cloud-arrow-down"></i> Обновить!</span>`;
+                    tdGitHub.textContent = `${upstream.latest} `;
+                    
+                    const badgeUpdate = document.createElement("span");
+                    badgeUpdate.className = "badge-update warning";
+                    badgeUpdate.title = "Нажмите, чтобы обновить";
+                    badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить!`;
+                    badgeUpdate.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
+                    tdGitHub.appendChild(badgeUpdate);
                 } else {
-                    tdGitHub.innerHTML = `${upstream.latest} <span class="badge-update success"><i class="fa-solid fa-check"></i> Актуально</span>`;
+                    const badgeUpToDate = document.createElement("span");
+                    badgeUpToDate.className = "badge-update success";
+                    badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
+                    tdGitHub.textContent = `${upstream.latest} `;
+                    tdGitHub.appendChild(badgeUpToDate);
                 }
             } else {
                 tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка...</span>`;
@@ -331,19 +342,43 @@ function renderServicesTable(services, versions) {
         tdActions.className = "actions-cell";
         
         if (status === "running") {
-            tdActions.innerHTML = `
-                <button class="btn-action stop" onclick="controlService('${key}', 'stop')" title="Остановить"><i class="fa-solid fa-stop"></i></button>
-                <button class="btn-action restart" onclick="controlService('${key}', 'restart')" title="Перезапустить"><i class="fa-solid fa-arrow-rotate-right"></i></button>
-            `;
+            const btnStop = document.createElement("button");
+            btnStop.className = "btn-action stop";
+            btnStop.title = "Остановить";
+            btnStop.innerHTML = `<i class="fa-solid fa-stop"></i>`;
+            btnStop.onclick = () => controlService(key, 'stop');
+            
+            const btnRestart = document.createElement("button");
+            btnRestart.className = "btn-action restart";
+            btnRestart.title = "Перезапустить";
+            btnRestart.innerHTML = `<i class="fa-solid fa-arrow-rotate-right"></i>`;
+            btnRestart.onclick = () => controlService(key, 'restart');
+            
+            tdActions.appendChild(btnStop);
+            tdActions.appendChild(btnRestart);
         } else if (status === "stopped") {
-            tdActions.innerHTML = `
-                <button class="btn-action start" onclick="controlService('${key}', 'start')" title="Запустить"><i class="fa-solid fa-play"></i></button>
-            `;
+            const btnStart = document.createElement("button");
+            btnStart.className = "btn-action start";
+            btnStart.title = "Запустить";
+            btnStart.innerHTML = `<i class="fa-solid fa-play"></i>`;
+            btnStart.onclick = () => controlService(key, 'start');
+            
+            tdActions.appendChild(btnStart);
         } else {
-            tdActions.innerHTML = `
-                <button class="btn-action start" onclick="controlService('${key}', 'start')" title="Запустить"><i class="fa-solid fa-play"></i></button>
-                <button class="btn-action stop" onclick="controlService('${key}', 'stop')" title="Остановить"><i class="fa-solid fa-stop"></i></button>
-            `;
+            const btnStart = document.createElement("button");
+            btnStart.className = "btn-action start";
+            btnStart.title = "Запустить";
+            btnStart.innerHTML = `<i class="fa-solid fa-play"></i>`;
+            btnStart.onclick = () => controlService(key, 'start');
+            
+            const btnStop = document.createElement("button");
+            btnStop.className = "btn-action stop";
+            btnStop.title = "Остановить";
+            btnStop.innerHTML = `<i class="fa-solid fa-stop"></i>`;
+            btnStop.onclick = () => controlService(key, 'stop');
+            
+            tdActions.appendChild(btnStart);
+            tdActions.appendChild(btnStop);
         }
         
         // Add Upgrade button directly in action column if update is available
