@@ -1,0 +1,6 @@
+downloads/
+*.log
+*.pyc
+__pycache__/
+.idea/
+.vscode/
