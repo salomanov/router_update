@@ -84,6 +84,32 @@ def get_opkg_package_version(package_name):
         pass
     return None
 
+def get_opkg_repo_version(package_name):
+    """Queries opkg info for a package and parses the repository version (not-installed status or first match)."""
+    try:
+        opkg_out = subprocess.check_output(["/opt/bin/opkg", "info", package_name], text=True)
+        blocks = opkg_out.strip().split("\n\n")
+        repo_ver = None
+        for block in blocks:
+            lines = block.splitlines()
+            ver = None
+            status_not_installed = False
+            for line in lines:
+                if line.startswith("Version:"):
+                    ver = line.replace("Version:", "").strip()
+                elif line.startswith("Status:"):
+                    status = line.replace("Status:", "").strip()
+                    if "not-installed" in status:
+                        status_not_installed = True
+            if ver and status_not_installed:
+                return ver
+            if ver and not repo_ver:
+                repo_ver = ver # fallback to first block
+        return repo_ver
+    except Exception:
+        pass
+    return None
+
 def get_installed_versions():
     """Retrieves installed versions of major packages."""
     versions = {}
@@ -243,6 +269,8 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             self.handle_service_action(data)
         elif self.path == "/api/update":
             self.handle_update(data)
+        elif self.path == "/api/exec":
+            self.handle_exec(data)
         else:
             self.send_error_response(404, "Not Found")
 
@@ -269,9 +297,24 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         for srv in SERVICES.keys():
             service_statuses[srv] = get_service_status(srv)
             
+        # Build OPKG repository versions list
+        opkg_versions = {}
+        opkg_versions["tg-ws-proxy"] = get_opkg_repo_version("tg-ws-proxy")
+        opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
+        opkg_versions["lighttpd"] = get_opkg_repo_version("lighttpd")
+        opkg_versions["dropbear"] = get_opkg_repo_version("dropbear")
+        
+        nfqws_ver = get_opkg_repo_version("nfqws2-keenetic")
+        if not nfqws_ver:
+            nfqws_ver = get_opkg_repo_version("nfqws-keenetic-web")
+        if not nfqws_ver:
+            nfqws_ver = get_opkg_repo_version("nfqws2")
+        opkg_versions["nfqws2"] = nfqws_ver
+            
         response = {
             "system": get_system_stats(),
             "versions": get_installed_versions(),
+            "opkg_versions": opkg_versions,
             "services": service_statuses
         }
         self.send_json_response(response)
@@ -340,6 +383,26 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             "output": output,
             "new_versions": get_installed_versions()
         })
+
+    def handle_exec(self, data):
+        command = data.get("command")
+        if not command:
+            self.send_error_response(400, "Missing 'command' parameter")
+            return
+            
+        logging.info(f"Executing manual command on router: {command}")
+        try:
+            # Run command inside shell with 30s timeout
+            res = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            output = res.stdout + res.stderr
+            self.send_json_response({
+                "success": res.returncode == 0,
+                "exit_code": res.returncode,
+                "output": output.strip()
+            })
+        except Exception as e:
+            logging.error(f"Failed to execute manual command {command}: {e}")
+            self.send_error_response(500, f"Execution failed: {str(e)}")
 
 def perform_service_update(service, version, url):
     """Executes the specific upgrade logic for the requested service."""

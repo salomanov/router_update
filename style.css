@@ -801,3 +801,19 @@ body {
         padding: 20px 10px;
     }
 }
+
+/* Git links next to service titles */
+.git-link {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-left: 6px;
+    transition: var(--transition-smooth);
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.git-link:hover {
+    color: var(--accent-cyan);
+    transform: scale(1.1);
+}
+

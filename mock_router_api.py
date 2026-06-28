@@ -26,6 +26,13 @@ mock_data = {
         "nfqws2": "1.2.3",
         "tuya-mqtt-calibrator": "installed"
     },
+    "opkg_versions": {
+        "tg-ws-proxy": "0.5-1",
+        "mosquitto": "2.0.18-3",
+        "lighttpd": "1.4.79-1",
+        "dropbear": "2024.86-1",
+        "nfqws2": "1.2.3"
+    },
     "services": {
         "dropbear": "running",
         "nfqws2": "running",
@@ -67,6 +74,8 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
             self.handle_service(data)
         elif self.path == "/api/update":
             self.handle_update(data)
+        elif self.path == "/api/exec":
+            self.handle_exec(data)
         else:
             self.send_error_response(404, "Not Found")
 
@@ -153,6 +162,28 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
             "success": True,
             "output": "\n".join(output),
             "new_versions": mock_data["versions"]
+        })
+
+    def handle_exec(self, data):
+        command = data.get("command")
+        if not command:
+            self.send_error_response(400, "Missing parameters")
+            return
+            
+        print(f"[MOCK] Executing command: {command}")
+        
+        # Simulate some standard commands for testing
+        if "opkg update" in command:
+            output = "Downloading http://bin.entware.net/mipselsf-k3.4/Packages.gz\nUpdated list of available packages in /opt/var/opkg-lists/entware"
+            # Update mock opkg versions to show a potential update!
+            mock_data["opkg_versions"]["mosquitto"] = "2.0.22-1"
+        else:
+            output = f"Mock output for command: {command}"
+            
+        self.send_json_response({
+            "success": True,
+            "exit_code": 0,
+            "output": output
         })
 
 def run_server():

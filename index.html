@@ -96,6 +96,7 @@
         <section class="services-control section-card">
             <div class="section-header">
                 <h2 class="section-title"><i class="fa-solid fa-cubes"></i> Сервисы и программы</h2>
+                <button id="btn-opkg-update" class="btn btn-secondary btn-sm" title="Обновить списки пакетов на роутере"><i class="fa-solid fa-arrows-rotate"></i> OPKG Update</button>
                 <button id="btn-refresh" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate"></i> Обновить статус</button>
             </div>
             
@@ -105,9 +106,9 @@
                         <tr>
                             <th>Сервис</th>
                             <th>Статус</th>
-                            <th>Установленная версия</th>
-                            <th>Релиз на GitHub</th>
-                            <th>Управление</th>
+                             <th>Установленная версия</th>
+                             <th>Релиз OPKG / GitHub</th>
+                             <th>Управление</th>
                         </tr>
                     </thead>
                     <tbody id="services-tbody">
@@ -133,6 +134,21 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </section>
+
+        <!-- Command execution card -->
+        <section class="command-executor section-card">
+            <h2 class="section-title"><i class="fa-solid fa-terminal"></i> Выполнение консольных команд</h2>
+            <p class="section-desc" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px; margin-top: -10px;">
+                Вы можете выполнять любые BusyBox команды непосредственно в шелле роутера.
+            </p>
+            <div class="command-input-row" style="display: flex; gap: 12px; align-items: center; width: 100%;">
+                <div class="input-wrapper" style="flex-grow: 1; position: relative;">
+                    <i class="fa-solid fa-chevron-right" style="position: absolute; left: 12px; color: var(--accent-cyan); top: 50%; transform: translateY(-50%);"></i>
+                    <input type="text" id="cmd-input" placeholder="Введите команду (например: df -h, ps, opkg list-installed)" style="width: 100%; padding-left: 32px;">
+                </div>
+                <button id="btn-run-cmd" class="btn btn-primary"><i class="fa-solid fa-play"></i> Выполнить</button>
             </div>
         </section>
 
@@ -183,6 +199,23 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-primary" id="btn-modal-ok">Я понял</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Update Confirmation Modal -->
+    <div class="modal-overlay" id="confirm-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-circle-question"></i> Подтверждение действия</h3>
+                <button class="modal-close" id="btn-close-confirm">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-modal-text">Вы уверены, что хотите обновить сервис?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-confirm-cancel">Отмена</button>
+                <button class="btn btn-primary" id="btn-confirm-yes">Да, продолжить</button>
             </div>
         </div>
     </div>

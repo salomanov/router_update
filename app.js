@@ -3,16 +3,18 @@ let routerHost = "http://192.168.1.1:8089";
 let isConnected = false;
 let refreshIntervalId = null;
 const REFRESH_RATE_MS = 6000; // Auto refresh every 6 seconds
+let isRefreshPaused = false;
+let pendingUpdate = null; // Store { service, version, url, isOpkg, command }
 
 // Service Meta Information
 const SERVICE_METADATA = {
-    "dropbear": { name: "SSH (Dropbear)", desc: "Сервер удаленного доступа SSH" },
-    "nfqws2": { name: "nfqws2 (zapret)", desc: "Обход систем фильтрации DPI / zapret" },
-    "tg-ws-proxy": { name: "tg-ws-proxy", desc: "Прокси Telegram MTProto WebSockets (Go)" },
-    "mosquitto": { name: "Mosquitto MQTT", desc: "Брокер сообщений для умного дома" },
-    "lighttpd": { name: "Lighttpd", desc: "Веб-сервер роутера" },
+    "dropbear": { name: "SSH (Dropbear)", desc: "Сервер удаленного доступа SSH", git: "https://github.com/mkj/dropbear" },
+    "nfqws2": { name: "nfqws2 (zapret)", desc: "Обход систем фильтрации DPI / zapret", git: "https://github.com/bol-van/zapret" },
+    "tg-ws-proxy": { name: "tg-ws-proxy", desc: "Прокси Telegram MTProto WebSockets (Go)", git: "https://github.com/spatiumstas/tg-ws-proxy-go" },
+    "mosquitto": { name: "Mosquitto MQTT", desc: "Брокер сообщений для умного дома", git: "https://github.com/eclipse-mosquitto/mosquitto" },
+    "lighttpd": { name: "Lighttpd", desc: "Веб-сервер роутера", git: "https://github.com/lighttpd/lighttpd1.4" },
     "tuya-mqtt-calibrator": { name: "Tuya MQTT Calibrator", desc: "Калибратор Tuya датчиков" },
-    "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент" }
+    "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" }
 };
 
 // Upstream GitHub Releases Cache
@@ -26,14 +28,25 @@ const hostInput = document.getElementById("router-host");
 const btnConnect = document.getElementById("btn-connect");
 const connectionStatus = document.getElementById("connection-status");
 const btnRefresh = document.getElementById("btn-refresh");
+const btnOpkgUpdate = document.getElementById("btn-opkg-update");
 const servicesTbody = document.getElementById("services-tbody");
 const consoleOutput = document.getElementById("console-output");
 const btnClearConsole = document.getElementById("btn-clear-console");
+
+// Command Executor Elements
+const cmdInput = document.getElementById("cmd-input");
+const btnRunCmd = document.getElementById("btn-run-cmd");
 
 // Modal Elements
 const helpModal = document.getElementById("help-modal");
 const btnCloseModal = document.getElementById("btn-close-modal");
 const btnModalOk = document.getElementById("btn-modal-ok");
+
+// Confirm Modal Elements
+const confirmModal = document.getElementById("confirm-modal");
+const btnCloseConfirm = document.getElementById("btn-close-confirm");
+const btnConfirmCancel = document.getElementById("btn-confirm-cancel");
+const btnConfirmYes = document.getElementById("btn-confirm-yes");
 
 // Init
 window.addEventListener("DOMContentLoaded", () => {
@@ -47,11 +60,25 @@ window.addEventListener("DOMContentLoaded", () => {
     // Bind Event Listeners
     btnConnect.addEventListener("click", handleConnect);
     btnRefresh.addEventListener("click", () => fetchRouterStatus(true));
+    btnOpkgUpdate.addEventListener("click", runOpkgUpdate);
     btnClearConsole.addEventListener("click", clearConsole);
+    
+    // Manual Command Executor
+    btnRunCmd.addEventListener("click", runManualCommand);
+    cmdInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            runManualCommand();
+        }
+    });
     
     // Modal events
     btnCloseModal.addEventListener("click", toggleModal);
     btnModalOk.addEventListener("click", toggleModal);
+    
+    // Confirm Modal events
+    btnCloseConfirm.addEventListener("click", handleConfirmCancel);
+    btnConfirmCancel.addEventListener("click", handleConfirmCancel);
+    btnConfirmYes.addEventListener("click", handleConfirmYes);
     
     // Pre-fetch upstream versions in background
     fetchUpstreamVersions();
@@ -117,7 +144,11 @@ function setConnectionState(state) {
         
         // Start auto-refresh
         if (!refreshIntervalId) {
-            refreshIntervalId = setInterval(() => fetchRouterStatus(true), REFRESH_RATE_MS);
+            refreshIntervalId = setInterval(() => {
+                if (!isRefreshPaused) {
+                    fetchRouterStatus(true);
+                }
+            }, REFRESH_RATE_MS);
         }
     } else if (state === "loading") {
         statusText.textContent = "Подключение...";
@@ -160,7 +191,7 @@ async function fetchRouterStatus(isRefresh = false) {
         setConnectionState("online");
         
         renderSystemStats(data.system);
-        renderServicesTable(data.services, data.versions);
+        renderServicesTable(data.services, data.versions, data.opkg_versions);
         
     } catch (err) {
         console.error(err);
@@ -265,7 +296,7 @@ function isUpdateAvailable(installed, latest) {
 }
 
 // Render Services list
-function renderServicesTable(services, versions) {
+function renderServicesTable(services, versions, opkgVersions) {
     if (!services) return;
     
     servicesTbody.innerHTML = "";
@@ -274,14 +305,21 @@ function renderServicesTable(services, versions) {
         const meta = SERVICE_METADATA[key];
         const status = services[key] || "unknown";
         const installedVersion = versions ? versions[key] : null;
+        const opkgVersion = opkgVersions ? opkgVersions[key] : null;
         
         const tr = document.createElement("tr");
         tr.setAttribute("data-service", key);
         
-        // Name Column
+        // Name Column (with Git icon link if configured)
         const tdName = document.createElement("td");
         tdName.className = "service-name";
-        tdName.innerHTML = `<strong>${meta.name}</strong><span class="service-desc">${meta.desc}</span>`;
+        
+        let gitLinkHtml = "";
+        if (meta.git) {
+            gitLinkHtml = ` <a href="${meta.git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
+        }
+        
+        tdName.innerHTML = `<strong>${meta.name}${gitLinkHtml}</strong><span class="service-desc">${meta.desc}</span>`;
         tr.appendChild(tdName);
         
         // Status Badge Column
@@ -303,14 +341,15 @@ function renderServicesTable(services, versions) {
         tdVersion.textContent = installedVersion || "—";
         tr.appendChild(tdVersion);
         
-        // GitHub Release Column
+        // Release Column (OPKG or GitHub)
         const tdGitHub = document.createElement("td");
         tdGitHub.className = "version-cell";
         
         const upstream = upstreamReleases[key];
         if (upstream) {
+            // This service is configured to check GitHub releases
             if (upstream.error) {
-                tdGitHub.innerHTML = `<span class="text-muted" title="${upstream.error}"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка</span>`;
+                tdGitHub.innerHTML = `<span class="text-muted" title="${upstream.error}"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка GitHub</span>`;
             } else if (upstream.latest) {
                 const hasUpdate = isUpdateAvailable(installedVersion, upstream.latest);
                 if (hasUpdate) {
@@ -318,8 +357,8 @@ function renderServicesTable(services, versions) {
                     
                     const badgeUpdate = document.createElement("span");
                     badgeUpdate.className = "badge-update warning";
-                    badgeUpdate.title = "Нажмите, чтобы обновить";
-                    badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить!`;
+                    badgeUpdate.title = "Нажмите, чтобы обновить через GitHub";
+                    badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> GitHub`;
                     badgeUpdate.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
                     tdGitHub.appendChild(badgeUpdate);
                 } else {
@@ -330,7 +369,26 @@ function renderServicesTable(services, versions) {
                     tdGitHub.appendChild(badgeUpToDate);
                 }
             } else {
-                tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка...</span>`;
+                tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка GitHub...</span>`;
+            }
+        } else if (opkgVersion) {
+            // This service is a standard OPKG package and has a version in the repository
+            const hasUpdate = isUpdateAvailable(installedVersion, opkgVersion);
+            if (hasUpdate) {
+                tdGitHub.textContent = `${opkgVersion} `;
+                
+                const badgeUpdate = document.createElement("span");
+                badgeUpdate.className = "badge-update warning";
+                badgeUpdate.title = "Нажмите, чтобы обновить через OPKG";
+                badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> OPKG`;
+                badgeUpdate.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
+                tdGitHub.appendChild(badgeUpdate);
+            } else {
+                const badgeUpToDate = document.createElement("span");
+                badgeUpToDate.className = "badge-update success";
+                badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
+                tdGitHub.textContent = `${opkgVersion} `;
+                tdGitHub.appendChild(badgeUpToDate);
             }
         } else {
             tdGitHub.innerHTML = `<span class="text-muted">—</span>`;
@@ -382,11 +440,20 @@ function renderServicesTable(services, versions) {
         }
         
         // Add Upgrade button directly in action column if update is available
-        if (upstream && upstream.latest && isUpdateAvailable(installedVersion, upstream.latest) && upstream.url) {
+        const hasGithubUpdate = upstream && upstream.latest && isUpdateAvailable(installedVersion, upstream.latest) && upstream.url;
+        const hasOpkgUpdate = !upstream && opkgVersion && isUpdateAvailable(installedVersion, opkgVersion);
+        
+        if (hasGithubUpdate) {
             const updateBtn = document.createElement("button");
             updateBtn.className = "btn-upgrade";
             updateBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить до ${upstream.latest}`;
             updateBtn.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
+            tdActions.appendChild(updateBtn);
+        } else if (hasOpkgUpdate) {
+            const updateBtn = document.createElement("button");
+            updateBtn.className = "btn-upgrade";
+            updateBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить до ${opkgVersion}`;
+            updateBtn.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
             tdActions.appendChild(updateBtn);
         }
         
@@ -434,28 +501,153 @@ async function controlService(service, action) {
     }
 }
 
-// Trigger Service Update
+// Trigger Service Update (GitHub)
 async function triggerUpdate(service, version, url) {
     if (!isConnected) return;
     
-    const confirmMsg = `Вы уверены, что хотите обновить ${service} до версии ${version}?`;
-    if (!confirm(confirmMsg)) return;
+    pendingUpdate = { service, version, url, isOpkg: false };
     
-    logToConsole(service, `Запуск обновления до версии ${version}...`, "cmd");
-    logToConsole(service, `Загрузка с: ${url}`, "output");
+    // Setup modal text
+    const confirmModalText = document.getElementById("confirm-modal-text");
+    confirmModalText.innerHTML = `Вы уверены, что хотите обновить сервис <strong>${service}</strong> до версии <strong>${version}</strong> с GitHub?<br><span style="font-size: 11px; color: var(--text-muted); word-break: break-all;">${url}</span>`;
     
-    // Temporarily disable buttons in that row
-    const row = document.querySelector(`tr[data-service="${service}"]`);
-    const upgradeBtns = row ? row.querySelectorAll(".btn-upgrade, .badge-update") : [];
-    upgradeBtns.forEach(btn => btn.disabled = true);
+    // Show Modal
+    confirmModal.classList.add("active");
+    pauseAutoRefresh();
+}
+
+// Trigger OPKG Service Update
+async function triggerOpkgUpgrade(service, version) {
+    if (!isConnected) return;
+    
+    const opkgNameMap = {
+        "mosquitto": "mosquitto-ssl",
+        "lighttpd": "lighttpd",
+        "dropbear": "dropbear",
+        "nfqws2": "nfqws2-keenetic",
+        "tg-ws-proxy": "tg-ws-proxy"
+    };
+    
+    const packageName = opkgNameMap[service];
+    if (!packageName) return;
+    
+    pendingUpdate = {
+        service,
+        version,
+        isOpkg: true,
+        command: `/opt/bin/opkg install ${packageName}`
+    };
+    
+    const confirmModalText = document.getElementById("confirm-modal-text");
+    confirmModalText.innerHTML = `Вы уверены, что хотите обновить OPKG пакет <strong>${packageName}</strong> до версии <strong>${version}</strong> через официальные списки пакетов?`;
+    
+    confirmModal.classList.add("active");
+    pauseAutoRefresh();
+}
+
+// Modal Confirm Event Handlers
+function handleConfirmCancel() {
+    confirmModal.classList.remove("active");
+    pendingUpdate = null;
+    resumeAutoRefresh();
+}
+
+async function handleConfirmYes() {
+    if (!pendingUpdate) return;
+    
+    confirmModal.classList.remove("active");
+    const { service, version, url, isOpkg, command } = pendingUpdate;
+    pendingUpdate = null;
+    
+    if (isOpkg) {
+        logToConsole(service, `Запуск обновления OPKG пакета до версии ${version}...`, "cmd");
+        logToConsole(service, `Выполнение команды: ${command}`, "output");
+        
+        try {
+            const response = await fetch(`${routerHost}/api/exec`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ command }),
+                mode: "cors"
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            if (result.success) {
+                logToConsole(service, `Пакет успешно обновлен!\n${result.output}`, "success");
+            } else {
+                logToConsole(service, `Сбой обновления (код ${result.exit_code}):\n${result.output}`, "error");
+            }
+        } catch (e) {
+            logToConsole(service, `Ошибка запроса на обновление: ${e.message}`, "error");
+        } finally {
+            resumeAutoRefresh();
+            fetchRouterStatus(true);
+        }
+    } else {
+        logToConsole(service, `Запуск обновления с GitHub до версии ${version}...`, "cmd");
+        logToConsole(service, `Загрузка с: ${url}`, "output");
+        
+        // Temporarily disable buttons in that row
+        const row = document.querySelector(`tr[data-service="${service}"]`);
+        const upgradeBtns = row ? row.querySelectorAll(".btn-upgrade, .badge-update") : [];
+        upgradeBtns.forEach(btn => btn.disabled = true);
+        
+        try {
+            const response = await fetch(`${routerHost}/api/update`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ service, version, url }),
+                mode: "cors"
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                logToConsole(service, `Обновление завершено успешно!`, "success");
+                if (result.output) {
+                    logToConsole(service, result.output, "output");
+                }
+            } else {
+                logToConsole(service, `Сбой обновления: ${result.output}`, "error");
+            }
+            
+        } catch (e) {
+            logToConsole(service, `Сбой запроса на обновление: ${e.message}`, "error");
+        } finally {
+            resumeAutoRefresh();
+            fetchRouterStatus(true);
+        }
+    }
+}
+
+// Execute Manual shell command
+async function runManualCommand() {
+    const command = cmdInput.value.trim();
+    if (!command || !isConnected) return;
+    
+    cmdInput.value = "";
+    logToConsole("Шелл", `Запуск команды: ${command}`, "cmd");
+    btnRunCmd.disabled = true;
     
     try {
-        const response = await fetch(`${routerHost}/api/update`, {
+        const response = await fetch(`${routerHost}/api/exec`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ service, version, url }),
+            body: JSON.stringify({ command }),
             mode: "cors"
         });
         
@@ -464,20 +656,58 @@ async function triggerUpdate(service, version, url) {
         }
         
         const result = await response.json();
-        
         if (result.success) {
-            logToConsole(service, `Обновление завершено успешно!`, "success");
-            if (result.output) {
-                logToConsole(service, result.output, "output");
-            }
+            logToConsole("Шелл", `Результат (код 0):\n${result.output}`, "success");
         } else {
-            logToConsole(service, `Сбой обновления: ${result.output}`, "error");
+            logToConsole("Шелл", `Сбой (код ${result.exit_code}):\n${result.output}`, "error");
+        }
+    } catch (e) {
+        logToConsole("Шелл", `Ошибка запроса: ${e.message}`, "error");
+    } finally {
+        btnRunCmd.disabled = false;
+    }
+}
+
+// Run OPKG list update
+async function runOpkgUpdate() {
+    if (!isConnected) return;
+    
+    logToConsole("OPKG", "Выполнение opkg update...", "cmd");
+    btnOpkgUpdate.disabled = true;
+    
+    try {
+        const response = await fetch(`${routerHost}/api/exec`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ command: "/opt/bin/opkg update" }),
+            mode: "cors"
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP Error: ${response.status}`);
         }
         
-        // Immediately refresh status to reload versions
-        fetchRouterStatus(true);
-        
+        const result = await response.json();
+        if (result.success) {
+            logToConsole("OPKG", `Списки пакетов успешно обновлены!\n${result.output}`, "success");
+            // Reload status to fetch new versions in background
+            fetchRouterStatus(true);
+        } else {
+            logToConsole("OPKG", `Сбой обновления списков (код ${result.exit_code}):\n${result.output}`, "error");
+        }
     } catch (e) {
-        logToConsole(service, `Сбой запроса на обновление: ${e.message}`, "error");
+        logToConsole("OPKG", `Ошибка запроса к роутеру: ${e.message}`, "error");
+    } finally {
+        btnOpkgUpdate.disabled = false;
     }
+}
+
+function pauseAutoRefresh() {
+    isRefreshPaused = true;
+}
+
+function resumeAutoRefresh() {
+    isRefreshPaused = false;
 }
