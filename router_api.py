@@ -296,7 +296,7 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         if filename == "/":
             filename = "/index.html"
             
-        file_path = os.path.join("/opt/share/www", filename.lstrip("/"))
+        file_path = os.path.join("/opt/share/router-control-center", filename.lstrip("/"))
         
         if not os.path.exists(file_path):
             self.send_error_response(404, f"File {filename} not found")
