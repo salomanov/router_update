@@ -4,3 +4,5 @@ downloads/
 __pycache__/
 .idea/
 .vscode/
+graphify-out/
+

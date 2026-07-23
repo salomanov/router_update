@@ -6,6 +6,11 @@ const REFRESH_RATE_MS = 6000; // Auto refresh every 6 seconds
 let isRefreshPaused = false;
 let pendingUpdate = null; // Store { service, version, url, isOpkg, command }
 
+let lastServicesData = null;
+let lastVersionsData = null;
+let lastOpkgVersionsData = null;
+let isUpstreamFetching = false;
+
 // Service Meta Information
 const SERVICE_METADATA = {
     "dropbear": { name: "SSH (Dropbear)", desc: "Сервер удаленного доступа SSH", git: "https://github.com/mkj/dropbear" },
@@ -86,11 +91,12 @@ window.addEventListener("DOMContentLoaded", () => {
     btnConfirmCancel.addEventListener("click", handleConfirmCancel);
     btnConfirmYes.addEventListener("click", handleConfirmYes);
     
-    // Auto-connect if hosted directly on the router API, otherwise pre-fetch in background
+    // Always trigger background upstream GitHub releases fetch
+    fetchUpstreamVersions();
+
+    // Auto-connect if hosted directly on the router API
     if (isLocalServer) {
         handleConnect();
-    } else {
-        fetchUpstreamVersions();
     }
 });
 
@@ -200,8 +206,16 @@ async function fetchRouterStatus(isRefresh = false) {
         }
         setConnectionState("online");
         
+        lastServicesData = data.services;
+        lastVersionsData = data.versions;
+        lastOpkgVersionsData = data.opkg_versions;
+
         renderSystemStats(data.system);
         renderServicesTable(data.services, data.versions, data.opkg_versions);
+
+        if (!isUpstreamFetching) {
+            fetchUpstreamVersions();
+        }
         
     } catch (err) {
         console.error(err);
@@ -250,34 +264,50 @@ function renderSystemStats(system) {
 
 // Fetch Latest Releases from GitHub in background
 async function fetchUpstreamVersions() {
+    if (isUpstreamFetching) return;
+    isUpstreamFetching = true;
+    let hasChanges = false;
+
     for (const key in upstreamReleases) {
         const item = upstreamReleases[key];
         try {
-            const res = await fetch(`https://api.github.com/repos/${item.repo}/releases/latest`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            const res = await fetch(`https://api.github.com/repos/${item.repo}/releases/latest`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
             if (!res.ok) throw new Error(`GitHub API Error: ${res.status}`);
             
             const data = await res.json();
             const tag = data.tag_name;
             
             // Find correct asset matching the platform
-            const asset = data.assets.find(a => a.name.toLowerCase().includes(item.keyword));
+            const asset = data.assets ? data.assets.find(a => a.name.toLowerCase().includes(item.keyword)) : null;
             if (asset) {
                 item.latest = tag;
                 item.url = asset.browser_download_url;
+                item.error = null;
             } else {
                 item.latest = tag;
                 item.url = null; // Could not find matching asset
                 item.error = "Asset not found for platform";
             }
+            hasChanges = true;
         } catch (e) {
             console.error(`Failed to fetch upstream for ${key}:`, e);
-            item.error = e.message;
+            item.error = e.name === "AbortError" ? "Таймаут запроса к GitHub API" : e.message;
+            hasChanges = true;
         }
     }
     
-    // If we're already connected, redraw table to display updates
-    if (isConnected) {
-        fetchRouterStatus(true);
+    isUpstreamFetching = false;
+
+    // Redraw table if router status data is loaded
+    if (hasChanges && lastServicesData) {
+        renderServicesTable(lastServicesData, lastVersionsData, lastOpkgVersionsData);
     }
 }
 
@@ -286,14 +316,14 @@ function isUpdateAvailable(installed, latest) {
     if (!installed || installed === "unknown" || installed === "not installed" || !latest) return false;
     
     // Strip leading 'v'
-    const cleanInstalled = installed.replace(/^v/, "").split("-")[0]; // e.g. "0.7.2-1" -> "0.7.2"
-    const cleanLatest = latest.replace(/^v/, "").split("-")[0];
+    const cleanInstalled = installed.replace(/^v/i, "").split("-")[0]; // e.g. "0.7.2-1" -> "0.7.2"
+    const cleanLatest = latest.replace(/^v/i, "").split("-")[0];
     
     if (cleanInstalled === cleanLatest) return false;
     
     // Compare versions split by dots
-    const partsInst = cleanInstalled.split(".").map(Number);
-    const partsLat = cleanLatest.split(".").map(Number);
+    const partsInst = cleanInstalled.split(".").map(v => parseInt(v, 10) || 0);
+    const partsLat = cleanLatest.split(".").map(v => parseInt(v, 10) || 0);
     
     for (let i = 0; i < Math.max(partsInst.length, partsLat.length); i++) {
         const vInst = partsInst[i] || 0;
@@ -316,6 +346,7 @@ function renderServicesTable(services, versions, opkgVersions) {
         const status = services[key] || "unknown";
         const installedVersion = versions ? versions[key] : null;
         const opkgVersion = opkgVersions ? opkgVersions[key] : null;
+        const upstream = upstreamReleases[key];
         
         const tr = document.createElement("tr");
         tr.setAttribute("data-service", key);
@@ -355,51 +386,41 @@ function renderServicesTable(services, versions, opkgVersions) {
         const tdGitHub = document.createElement("td");
         tdGitHub.className = "version-cell";
         
-        const upstream = upstreamReleases[key];
-        if (upstream) {
-            // This service is configured to check GitHub releases
-            if (upstream.error) {
-                tdGitHub.innerHTML = `<span class="text-muted" title="${upstream.error}"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка GitHub</span>`;
-            } else if (upstream.latest) {
-                const hasUpdate = isUpdateAvailable(installedVersion, upstream.latest);
-                if (hasUpdate) {
-                    tdGitHub.textContent = `${upstream.latest} `;
-                    
-                    const badgeUpdate = document.createElement("span");
-                    badgeUpdate.className = "badge-update warning";
-                    badgeUpdate.title = "Нажмите, чтобы обновить через GitHub";
-                    badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> GitHub`;
-                    badgeUpdate.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
-                    tdGitHub.appendChild(badgeUpdate);
-                } else {
-                    const badgeUpToDate = document.createElement("span");
-                    badgeUpToDate.className = "badge-update success";
-                    badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
-                    tdGitHub.textContent = `${upstream.latest} `;
-                    tdGitHub.appendChild(badgeUpToDate);
-                }
-            } else {
-                tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка GitHub...</span>`;
-            }
-        } else if (opkgVersion) {
-            // This service is a standard OPKG package and has a version in the repository
-            const hasUpdate = isUpdateAvailable(installedVersion, opkgVersion);
-            if (hasUpdate) {
-                tdGitHub.textContent = `${opkgVersion} `;
-                
-                const badgeUpdate = document.createElement("span");
-                badgeUpdate.className = "badge-update warning";
-                badgeUpdate.title = "Нажмите, чтобы обновить через OPKG";
-                badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> OPKG`;
-                badgeUpdate.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
-                tdGitHub.appendChild(badgeUpdate);
-            } else {
-                const badgeUpToDate = document.createElement("span");
-                badgeUpToDate.className = "badge-update success";
-                badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
-                tdGitHub.textContent = `${opkgVersion} `;
-                tdGitHub.appendChild(badgeUpToDate);
-            }
+        const hasGithubUpdate = upstream && upstream.latest && isUpdateAvailable(installedVersion, upstream.latest) && upstream.url;
+        const hasOpkgUpdate = opkgVersion && isUpdateAvailable(installedVersion, opkgVersion);
+
+        if (hasGithubUpdate) {
+            tdGitHub.textContent = `${upstream.latest} `;
+            const badgeUpdate = document.createElement("span");
+            badgeUpdate.className = "badge-update warning";
+            badgeUpdate.title = "Нажмите, чтобы обновить через GitHub";
+            badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> GitHub`;
+            badgeUpdate.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
+            tdGitHub.appendChild(badgeUpdate);
+        } else if (hasOpkgUpdate) {
+            tdGitHub.textContent = `${opkgVersion} `;
+            const badgeUpdate = document.createElement("span");
+            badgeUpdate.className = "badge-update warning";
+            badgeUpdate.title = "Нажмите, чтобы обновить через OPKG";
+            badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> OPKG`;
+            badgeUpdate.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
+            tdGitHub.appendChild(badgeUpdate);
+        } else if (upstream && upstream.latest && !hasGithubUpdate) {
+            const badgeUpToDate = document.createElement("span");
+            badgeUpToDate.className = "badge-update success";
+            badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
+            tdGitHub.textContent = `${upstream.latest} `;
+            tdGitHub.appendChild(badgeUpToDate);
+        } else if (opkgVersion && !hasOpkgUpdate) {
+            const badgeUpToDate = document.createElement("span");
+            badgeUpToDate.className = "badge-update success";
+            badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
+            tdGitHub.textContent = `${opkgVersion} `;
+            tdGitHub.appendChild(badgeUpToDate);
+        } else if (upstream && !upstream.latest && !upstream.error && !opkgVersion) {
+            tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка GitHub...</span>`;
+        } else if (upstream && upstream.error && !opkgVersion) {
+            tdGitHub.innerHTML = `<span class="text-muted" title="${upstream.error}"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка GitHub</span>`;
         } else {
             tdGitHub.innerHTML = `<span class="text-muted">—</span>`;
         }
@@ -450,9 +471,6 @@ function renderServicesTable(services, versions, opkgVersions) {
         }
         
         // Add Upgrade button directly in action column if update is available
-        const hasGithubUpdate = upstream && upstream.latest && isUpdateAvailable(installedVersion, upstream.latest) && upstream.url;
-        const hasOpkgUpdate = !upstream && opkgVersion && isUpdateAvailable(installedVersion, opkgVersion);
-        
         if (hasGithubUpdate) {
             const updateBtn = document.createElement("button");
             updateBtn.className = "btn-upgrade";

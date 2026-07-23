@@ -18,20 +18,20 @@ mock_data = {
         "disk_used_pct": 5.6
     },
     "versions": {
-        "tg-ws-proxy": "0.5-1",
-        "usque": "v2.0.1",
-        "mosquitto": "2.0.18-3",
-        "lighttpd": "1.4.79-1",
-        "dropbear": "2024.86-1",
-        "nfqws2": "1.2.3",
+        "tg-ws-proxy": "0.9.2-1",
+        "usque": "v4.2.1",
+        "mosquitto": "2.0.22-1",
+        "lighttpd": "1.4.82-2",
+        "dropbear": "2025.89-1",
+        "nfqws2": "1.2.4",
         "tuya-mqtt-calibrator": "installed"
     },
     "opkg_versions": {
-        "tg-ws-proxy": "0.5-1",
-        "mosquitto": "2.0.18-3",
-        "lighttpd": "1.4.79-1",
-        "dropbear": "2024.86-1",
-        "nfqws2": "1.2.3"
+        "tg-ws-proxy": "0.9.2-1",
+        "mosquitto": "2.0.22-1",
+        "lighttpd": "1.4.82-2",
+        "dropbear": "2025.89-1",
+        "nfqws2": "1.2.4"
     },
     "services": {
         "dropbear": "running",

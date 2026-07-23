@@ -337,6 +337,7 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
         opkg_versions["lighttpd"] = get_opkg_repo_version("lighttpd")
         opkg_versions["dropbear"] = get_opkg_repo_version("dropbear")
+        opkg_versions["usque"] = get_opkg_repo_version("usque")
         
         nfqws_ver = get_opkg_repo_version("nfqws2-keenetic")
         if not nfqws_ver:
