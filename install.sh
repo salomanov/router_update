@@ -41,7 +41,7 @@ if [ -f "$API_PIDFILE" ]; then
 fi
 
 # 2. Проверка и установка системных зависимостей
-DEPS="python3-light python3-logging python3-urllib python3-codecs curl"
+DEPS="python3-light python3-logging python3-urllib python3-codecs python3-idna curl"
 NEED_UPDATE=0
 
 printf "Проверка зависимостей...\n"
@@ -72,7 +72,7 @@ mkdir -p /opt/share/router-control-center
 
 # 4. Загрузка исходных файлов с репозитория GitHub
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
-CACHE_BUST="?t=$(date +%s)"
+CACHE_BUST="?nocache=$(date +%s)$$"
 
 printf "Загрузка бэкенда и скрипта инициализации...\n"
 curl -sL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}"
