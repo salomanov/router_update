@@ -612,6 +612,7 @@ def perform_service_update(service, version, url):
     return False, "Unknown service update logic"
 
 class SafeHTTPServer(HTTPServer):
+    allow_reuse_address = True
     def server_bind(self):
         TCPServer.server_bind(self)
         host, port = self.server_address[:2]
