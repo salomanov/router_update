@@ -41,7 +41,7 @@ if [ -f "$API_PIDFILE" ]; then
 fi
 
 # 2. Проверка и установка системных зависимостей
-DEPS="python3-light python3-logging python3-urllib curl"
+DEPS="python3-light python3-logging python3-urllib python3-codecs curl"
 NEED_UPDATE=0
 
 printf "Проверка зависимостей...\n"

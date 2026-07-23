@@ -6,8 +6,10 @@ import subprocess
 import urllib.request
 import zipfile
 import shutil
+import socket
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import TCPServer
 
 # Configure Logging
 LOG_FILE = "/opt/var/log/router_api.log"
@@ -609,9 +611,19 @@ def perform_service_update(service, version, url):
 
     return False, "Unknown service update logic"
 
+class SafeHTTPServer(HTTPServer):
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        try:
+            self.server_name = socket.getfqdn(host)
+        except Exception:
+            self.server_name = host or "0.0.0.0"
+        self.server_port = port
+
 def run_server():
     server_address = ('', PORT)
-    httpd = HTTPServer(server_address, RouterAPIHandler)
+    httpd = SafeHTTPServer(server_address, RouterAPIHandler)
     logging.info(f"Router API running on port {PORT}...")
     try:
         httpd.serve_forever()
