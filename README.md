@@ -26,7 +26,7 @@ wget -qO- https://raw.githubusercontent.com/salomanov/router_update/main/install
 curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install.sh | sh
 ```
 
-Скрипт автоматически установит зависимости (`python3-light`, `python3-logging`, `curl`), создаст папки, скачает бэкенд, настроит автозапуск и запустит API-сервер.
+Скрипт автоматически установит зависимости (`python3-light`, `python3-logging`, `python3-urllib`, `curl`), создаст папки, скачает бэкенд, настроит автозапуск и запустит API-сервер.
 
 ---
 
