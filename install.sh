@@ -72,24 +72,25 @@ mkdir -p /opt/share/router-control-center
 
 # 4. Загрузка исходных файлов с репозитория GitHub
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
+CACHE_BUST="?t=$(date +%s)"
 
 printf "Загрузка бэкенда и скрипта инициализации...\n"
-curl -sL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py"
+curl -sL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}"
 if [ $? -ne 0 ]; then
     printf "${RED}Ошибка при скачивании бэкенда.${NC}\n"
     exit 1
 fi
 
-curl -sL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api"
+curl -sL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api${CACHE_BUST}"
 if [ $? -ne 0 ]; then
     printf "${RED}Ошибка при скачивании init-скрипта.${NC}\n"
     exit 1
 fi
 
 printf "Загрузка статических веб-файлов...\n"
-curl -sL -o /opt/share/router-control-center/index.html "${REPO_RAW}/index.html"
-curl -sL -o /opt/share/router-control-center/style.css "${REPO_RAW}/style.css"
-curl -sL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js"
+curl -sL -o /opt/share/router-control-center/index.html "${REPO_RAW}/index.html${CACHE_BUST}"
+curl -sL -o /opt/share/router-control-center/style.css "${REPO_RAW}/style.css${CACHE_BUST}"
+curl -sL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js${CACHE_BUST}"
 if [ $? -ne 0 ]; then
     printf "${RED}Ошибка при скачивании статических веб-файлов.${NC}\n"
     exit 1
