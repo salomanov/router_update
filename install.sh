@@ -41,7 +41,7 @@ if [ -f "$API_PIDFILE" ]; then
 fi
 
 # 2. Проверка и установка системных зависимостей
-DEPS="python3-light python3-logging python3-urllib python3-codecs python3-idna curl"
+DEPS="python3-light python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
 NEED_UPDATE=0
 
 printf "Проверка зависимостей...\n"
@@ -62,6 +62,9 @@ if [ "$NEED_UPDATE" -eq 1 ]; then
         exit 1
     fi
     printf "Зависимости установлены.\n"
+    if [ -x "/opt/bin/wget" ]; then
+        ln -sf /opt/bin/wget /opt/usr/bin/wget 2>/dev/null || true
+    fi
 fi
 
 # 3. Создание папок
