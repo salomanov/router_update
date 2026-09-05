@@ -1,15 +1,22 @@
 #!/bin/sh
 
+export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
 PROG="/opt/scripts/router_api.py"
 PIDFILE="/opt/var/run/router-api.pid"
+PYTHON="/opt/bin/python3"
+LOGFILE="/opt/var/log/router_api.log"
 
 start() {
     if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
         echo "Router API is already running."
         return 0
     fi
+    mkdir -p /opt/var/run /opt/var/log
     echo -n "Starting Router API... "
-    python3 "$PROG" > /dev/null 2>&1 &
+    if [ ! -x "$PYTHON" ]; then
+        PYTHON=$(which python3 2>/dev/null || echo "python3")
+    fi
+    $PYTHON "$PROG" >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
     echo "done."
 }
