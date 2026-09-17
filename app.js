@@ -19,7 +19,9 @@ const SERVICE_METADATA = {
     "mosquitto": { name: "Mosquitto MQTT", desc: "Брокер сообщений для умного дома", git: "https://github.com/eclipse-mosquitto/mosquitto" },
     "lighttpd": { name: "Lighttpd", desc: "Веб-сервер роутера", git: "https://github.com/lighttpd/lighttpd1.4" },
     "tuya-mqtt-calibrator": { name: "Tuya MQTT Calibrator", desc: "Калибратор Tuya датчиков" },
-    "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" }
+    "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" },
+    "tailscale": { name: "Tailscale VPN", desc: "Mesh VPN / Exit Node для удаленного доступа", git: "https://github.com/tailscale/tailscale" },
+    "3proxy": { name: "3proxy", desc: "Универсальный HTTPS/SOCKS5 прокси-сервер", git: "https://github.com/3proxy/3proxy" }
 };
 
 // Upstream GitHub Releases Cache

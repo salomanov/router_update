@@ -31,11 +31,13 @@ PORT = 8089
 SERVICES = {
     "dropbear": {"script": "/opt/etc/init.d/S51dropbear", "proc": "dropbear"},
     "nfqws2": {"script": "/opt/etc/init.d/S51nfqws2", "proc": "nfqws"},
-    "tg-ws-proxy": {"script": "/opt/etc/init.d/S61tg-ws-proxy", "proc": "tg-ws-proxy"},
+    "tg-ws-proxy": {"script": "/opt/etc/init.d/S99tg-ws-proxy" if os.path.exists("/opt/etc/init.d/S99tg-ws-proxy") else "/opt/etc/init.d/S61tg-ws-proxy", "proc": "tg-ws-proxy"},
     "mosquitto": {"script": "/opt/etc/init.d/S80mosquitto", "proc": "mosquitto"},
     "lighttpd": {"script": "/opt/etc/init.d/S80lighttpd", "proc": "lighttpd"},
     "tuya-mqtt-calibrator": {"script": "/opt/etc/init.d/S99tuya-mqtt-calibrator", "proc": "tuya_mqtt_calibrator.py"},
-    "usque": {"script": "/opt/etc/init.d/S99usque", "proc": "usque"}
+    "usque": {"script": "/opt/etc/init.d/S99usque", "proc": "usque"},
+    "tailscale": {"script": "/opt/etc/init.d/S06tailscale", "proc": "tailscaled"},
+    "3proxy": {"script": "/opt/etc/init.d/S23proxy", "proc": "3proxy"}
 }
 
 def get_process_status(proc_name):
