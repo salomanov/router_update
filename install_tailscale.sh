@@ -99,8 +99,8 @@ iptables -C INPUT -i tailscale0 -j ACCEPT 2>/dev/null || iptables -I INPUT -i ta
 iptables -C FORWARD -i tailscale0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -i tailscale0 -j ACCEPT
 iptables -C FORWARD -o tailscale0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -o tailscale0 -j ACCEPT
 
-# Reject QUIC (UDP 443) immediately to force mobile apps (Instagram, YouTube) to fallback to TCP with DPI bypass instantly
-iptables -C FORWARD -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -I FORWARD -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+# Reject QUIC (UDP 443) from tailscale0 immediately to force mobile apps (Instagram, YouTube) to fallback to TCP with DPI bypass instantly
+iptables -C FORWARD -i tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -I FORWARD -i tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable
 
 # Clamp TCP MSS for Tailscale (MTU 1280) to 1240 to prevent packet drops and fragmentation
 iptables -t mangle -C FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -t mangle -I FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
