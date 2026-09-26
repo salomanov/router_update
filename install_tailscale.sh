@@ -26,7 +26,7 @@ if [ ! -c /dev/net/tun ]; then
     mknod /dev/net/tun c 10 200
 fi
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null 2>&1
 
 # 3. Добавление доменов Tailscale в белый список nfqws2
 printf "${YELLOW}[2/5] Добавление Tailscale в список обхода DPI (nfqws2)...${NC}\n"
@@ -68,7 +68,7 @@ start() {
         mknod /dev/net/tun c 10 200
     fi
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+    sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null 2>&1
     
     echo -n "Starting $DESC... "
     start-stop-daemon -S -b -m -p /opt/var/run/tailscaled.pid -x /opt/bin/tailscaled -- $ARGS
