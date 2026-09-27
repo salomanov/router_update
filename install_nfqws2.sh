@@ -60,6 +60,12 @@ for b in $BLOBS; do
     curl -sL -o "/opt/etc/nfqws2/blobs/$b" "${REPO_RAW}/blobs/$b${CACHE_BUST}"
 done
 
+# Настройка блокировки QUIC (UDP 443) для исключения заиканий звука и видео в YouTube
+mkdir -p /opt/etc/ndm/netfilter.d
+curl -sL -o /opt/etc/ndm/netfilter.d/020-block-quic.sh "${REPO_RAW}/ndm/020-block-quic.sh${CACHE_BUST}"
+chmod +x /opt/etc/ndm/netfilter.d/020-block-quic.sh
+/opt/etc/ndm/netfilter.d/020-block-quic.sh >/dev/null 2>&1
+
 # 5. Запуск и проверка службы
 printf "${YELLOW}[4/4] Запуск службы nfqws2...${NC}\n"
 if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
