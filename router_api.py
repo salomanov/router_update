@@ -8,8 +8,12 @@ import zipfile
 import shutil
 import socket
 import logging
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from socketserver import TCPServer
+from socketserver import TCPServer, ThreadingMixIn
+
+_VERSIONS_CACHE = {"data": None, "timestamp": 0}
+_REPO_VERSIONS_CACHE = {"data": None, "timestamp": 0}
 
 # Configure Logging
 LOG_FILE = "/opt/var/log/router_api.log"
@@ -112,10 +116,36 @@ def get_opkg_repo_version(package_name):
         return repo_ver
     except Exception:
         pass
-    return None
+def get_all_opkg_repo_versions(force=False):
+    """Queries OPKG repo versions for managed packages (cached for 300s)."""
+    now = time.time()
+    if not force and _REPO_VERSIONS_CACHE["data"] and (now - _REPO_VERSIONS_CACHE["timestamp"] < 300):
+        return _REPO_VERSIONS_CACHE["data"]
 
-def get_installed_versions():
-    """Retrieves installed versions of major packages."""
+    opkg_versions = {}
+    opkg_versions["tg-ws-proxy"] = get_opkg_repo_version("tg-ws-proxy")
+    opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
+    opkg_versions["lighttpd"] = get_opkg_repo_version("lighttpd")
+    opkg_versions["dropbear"] = get_opkg_repo_version("dropbear")
+    opkg_versions["usque"] = get_opkg_repo_version("usque")
+    
+    nfqws_ver = get_opkg_repo_version("nfqws2-keenetic")
+    if not nfqws_ver:
+        nfqws_ver = get_opkg_repo_version("nfqws-keenetic-web")
+    if not nfqws_ver:
+        nfqws_ver = get_opkg_repo_version("nfqws2")
+    opkg_versions["nfqws2"] = nfqws_ver
+
+    _REPO_VERSIONS_CACHE["data"] = opkg_versions
+    _REPO_VERSIONS_CACHE["timestamp"] = now
+    return opkg_versions
+
+def get_installed_versions(force=False):
+    """Retrieves installed versions of major packages (cached for 60s)."""
+    now = time.time()
+    if not force and _VERSIONS_CACHE["data"] and (now - _VERSIONS_CACHE["timestamp"] < 60):
+        return _VERSIONS_CACHE["data"]
+
     versions = {}
     
     # 1. tg-ws-proxy
@@ -172,6 +202,8 @@ def get_installed_versions():
     else:
         versions["tuya-mqtt-calibrator"] = "not installed"
 
+    _VERSIONS_CACHE["data"] = versions
+    _VERSIONS_CACHE["timestamp"] = now
     return versions
 
 def get_system_stats():
@@ -335,20 +367,8 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         for srv in SERVICES.keys():
             service_statuses[srv] = get_service_status(srv)
             
-        # Build OPKG repository versions list
-        opkg_versions = {}
-        opkg_versions["tg-ws-proxy"] = get_opkg_repo_version("tg-ws-proxy")
-        opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
-        opkg_versions["lighttpd"] = get_opkg_repo_version("lighttpd")
-        opkg_versions["dropbear"] = get_opkg_repo_version("dropbear")
-        opkg_versions["usque"] = get_opkg_repo_version("usque")
-        
-        nfqws_ver = get_opkg_repo_version("nfqws2-keenetic")
-        if not nfqws_ver:
-            nfqws_ver = get_opkg_repo_version("nfqws-keenetic-web")
-        if not nfqws_ver:
-            nfqws_ver = get_opkg_repo_version("nfqws2")
-        opkg_versions["nfqws2"] = nfqws_ver
+        # Build OPKG repository versions list (cached)
+        opkg_versions = get_all_opkg_repo_versions()
             
         response = {
             "system": get_system_stats(),
@@ -429,16 +449,43 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             self.send_error_response(400, "Missing 'command' parameter")
             return
             
-        logging.info(f"Executing manual command on router: {command}")
+        timeout = int(data.get("timeout", 180))
+        logging.info(f"Executing manual command on router: {command} (timeout={timeout}s)")
+        
+        # Intercept opkg update to use resilient chunked updater
+        cmd_strip = command.strip()
+        if cmd_strip in ["/opt/bin/opkg update", "opkg update"]:
+            if os.path.exists("/opt/scripts/opkg_update.py"):
+                command = "python3 /opt/scripts/opkg_update.py"
+
         try:
-            # Run command inside shell with 30s timeout
-            res = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            res = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
             output = res.stdout + res.stderr
+            # If opkg command was run, invalidate cache
+            if "opkg" in command:
+                _VERSIONS_CACHE["data"] = None
+                _REPO_VERSIONS_CACHE["data"] = None
             self.send_json_response({
                 "success": res.returncode == 0,
                 "exit_code": res.returncode,
                 "output": output.strip()
             })
+        except subprocess.TimeoutExpired as te:
+            logging.error(f"Command '{command}' timed out after {timeout}s: {te}")
+            try:
+                subprocess.run(["killall", "-9", "wget", "opkg"], capture_output=True)
+            except Exception:
+                pass
+            if os.path.exists("/opt/tmp/opkg.lock"):
+                try:
+                    os.remove("/opt/tmp/opkg.lock")
+                except Exception:
+                    pass
+            self.send_json_response({
+                "success": False,
+                "exit_code": -1,
+                "output": f"Команда прервана по таймауту ({timeout}с): {te}"
+            }, status_code=200)
         except Exception as e:
             logging.error(f"Failed to execute manual command {command}: {e}")
             self.send_error_response(500, f"Execution failed: {str(e)}")
@@ -613,7 +660,8 @@ def perform_service_update(service, version, url):
 
     return False, "Unknown service update logic"
 
-class SafeHTTPServer(HTTPServer):
+class SafeHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
     allow_reuse_address = True
     def server_bind(self):
         TCPServer.server_bind(self)

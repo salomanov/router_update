@@ -599,7 +599,7 @@ async function handleConfirmYes() {
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({ command }),
+                body: JSON.stringify({ command, timeout: 180 }),
                 mode: "cors"
             });
             
@@ -711,7 +711,7 @@ async function runOpkgUpdate() {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ command: "/opt/bin/opkg update" }),
+            body: JSON.stringify({ command: "/opt/bin/opkg update", timeout: 180 }),
             mode: "cors"
         });
         

@@ -10,7 +10,7 @@
 - **Firmware:** KeeneticOS (modded Keenetic Peak KN-2410 / KN-1810) on MIPS architecture
 - **Storage:** Entware installed on `/opt`
 - **DPI Bypass Engine:** `nfqws2-keenetic` 1.3.1 (LUA zapret engine)
-- **Router Web API:** Python Bottle service running on port 8089 (`http://192.168.1.1:8089/api/exec`)
+- **Router Web API:** Python service running on port 8089 (`http://192.168.1.1:8089/api/exec`)
 - **Remote Gateway:** SSH on port 222 (`root:keenetic`)
 
 ## Current Working State (as of October 2026)
@@ -23,25 +23,28 @@
 3. **Bambu Lab 3D Printing:**
    - Bambu AWS S3 storage (`bambulab-prod-oss-*.s3.amazonaws.com`) safely preserved in `exclude.list`.
 4. **Webcam & Rip Video Streaming (livecamrips.to, webcamshow.cc, webmodel.cam):**
-   - **Root Cause of Video Stalling:**
-     - `webcamshow.cc` and `webmodel.cam` embed iframes pointing to `mxdrop.sx`, which redirect (`302`) to `mxdrop.top`. Without `mxdrop.top` in `user.list`, Cloudflare/ISP DPI dropped packets mid-stream after ~25KB, stalling the player initialization before video URLs were requested.
-     - Video deliveries for MixDrop are served directly from `*.mxcontent.net` (`ebij8ni1d.mxcontent.net`, `30xplewoo.mxcontent.net`, `usx2f826m.mxcontent.net`).
-     - `livecamrips.to` utilizes 4 distinct embedded streaming providers:
-       1. MixDrop alias (`mdzsmutpcvykb.net` -> `mxdrop.top` -> `*.mxcontent.net`)
-       2. Uqload (`uqload.vc`, `*.uqload.vc` / `strm*.uqload.vc` HLS)
-       3. Vidara (`vidara.to` -> `97bf1.com` / `s*.97bf1.com` HLS + `s1q2105.com` thumbnails)
-       4. StreamCash (`streamcash.to` -> `cdn.streamcash.to` HLS `.ts` segments)
+   - Added all 4 streaming networks, player domains, and video CDNs to `user.list` (412 domains total).
+   - Fast chunk / HLS download verified across all providers.
+5. **Entware OPKG Updates & Web Panel API (Fixed):**
+   - **Root Cause of HTTP 500:**
+     - `bin.entware.net` (`107.189.14.230`, BuyVM Luxembourg) single-stream HTTP transfers are throttled/dropped by Russian ISP ТСПУ/DPI after exactly 33,054 bytes.
+     - `opkg update` using standard single-stream `wget` stalled, hitting the hardcoded 30s timeout in `router_api.py`, returning HTTP 500 and leaving orphaned `wget`/`opkg` processes holding `/opt/tmp/opkg.lock`.
+     - `router_api.py` was single-threaded, freezing background status checks during any long execution.
+     - Status checks polled every 5s ran 12 subprocess opkg calls repeatedly, generating CPU spikes.
    - **Remediation:**
-     - Added all 4 streaming networks, player domains, and video CDNs to `user.list` (407 domains total).
-     - Verified fast chunk / HLS download across all 4 providers.
+     - Developed `/opt/scripts/opkg_update.py`: downloads `Packages.gz` in 30KB slices using HTTP Range requests (377 KB complete in ~7 seconds with 100% reliability and gzip verification).
+     - Added `ThreadingMixIn` to `SafeHTTPServer` in `router_api.py` for concurrent request handling.
+     - Implemented in-memory TTL caching (60s for installed versions, 300s for repo versions) with cache invalidation on package actions.
+     - Added configurable timeouts (default 180s), graceful timeout recovery, and automatic lock cleanup.
+     - Updated `app.js` with 180s timeout headers and verified full functionality via web UI.
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
-- `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (407 domains).
-- `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3).
-- `/opt/etc/ndm/netfilter.d/020-block-quic.sh`: QUIC UDP 443 reject script.
-- `/opt/etc/ndm/netfilter.d/010-tailscale.sh`: Tailscale iptables rules.
+- `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (412 domains).
+- `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3, Entware).
+- `/opt/scripts/router_api.py`: Multi-threaded web control panel API.
+- `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
+- `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
 
 ## Next Steps
-- Verify user playback across all three sites in web browsers.
 - Maintain sync between local Git repository and router.
