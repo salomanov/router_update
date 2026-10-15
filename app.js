@@ -7,6 +7,7 @@ let isRefreshPaused = false;
 let pendingUpdate = null; // Store { service, version, url, isOpkg, command }
 
 let lastServicesData = null;
+let lastCatalogData = null;
 let lastVersionsData = null;
 let lastOpkgVersionsData = null;
 let isUpstreamFetching = false;
@@ -21,7 +22,11 @@ const SERVICE_METADATA = {
     "tuya-mqtt-calibrator": { name: "Tuya MQTT Calibrator", desc: "Калибратор Tuya датчиков" },
     "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" },
     "tailscale": { name: "Tailscale VPN", desc: "Mesh VPN / Exit Node для удаленного доступа", git: "https://github.com/tailscale/tailscale" },
-    "3proxy": { name: "3proxy", desc: "Универсальный HTTPS/SOCKS5 прокси-сервер", git: "https://github.com/3proxy/3proxy" }
+    "3proxy": { name: "3proxy", desc: "Универсальный HTTPS/SOCKS5 прокси-сервер", git: "https://github.com/3proxy/3proxy" },
+    "adguardhome": { name: "AdGuard Home", desc: "Блокировщик рекламы и приватный DNS-сервер", git: "https://github.com/AdguardTeam/AdGuardHome" },
+    "transmission": { name: "Transmission", desc: "Торрент-клиент с веб-интерфейсом", git: "https://github.com/transmission/transmission" },
+    "stubby": { name: "Stubby DNS", desc: "DNS-over-TLS резолвер", git: "https://github.com/dnsprivacy/stubby" },
+    "iperf3": { name: "iPerf3", desc: "Утилита тестирования скорости сети", git: "https://github.com/esnet/iperf" }
 };
 
 // Upstream GitHub Releases Cache
@@ -39,6 +44,15 @@ const btnOpkgUpdate = document.getElementById("btn-opkg-update");
 const servicesTbody = document.getElementById("services-tbody");
 const consoleOutput = document.getElementById("console-output");
 const btnClearConsole = document.getElementById("btn-clear-console");
+
+// Tab Navigation Elements
+const tabBtnInstalled = document.getElementById("tab-btn-installed");
+const tabBtnCatalog = document.getElementById("tab-btn-catalog");
+const tabInstalledView = document.getElementById("tab-installed-view");
+const tabCatalogView = document.getElementById("tab-catalog-view");
+const installedCount = document.getElementById("installed-count");
+const catalogCount = document.getElementById("catalog-count");
+const catalogTbody = document.getElementById("catalog-tbody");
 
 // Command Executor Elements
 const cmdInput = document.getElementById("cmd-input");
@@ -75,6 +89,12 @@ window.addEventListener("DOMContentLoaded", () => {
     btnRefresh.addEventListener("click", () => fetchRouterStatus(true));
     btnOpkgUpdate.addEventListener("click", runOpkgUpdate);
     btnClearConsole.addEventListener("click", clearConsole);
+
+    // Tab Navigation
+    if (tabBtnInstalled && tabBtnCatalog) {
+        tabBtnInstalled.addEventListener("click", () => switchTab("installed"));
+        tabBtnCatalog.addEventListener("click", () => switchTab("catalog"));
+    }
     
     // Manual Command Executor
     btnRunCmd.addEventListener("click", runManualCommand);
@@ -101,6 +121,21 @@ window.addEventListener("DOMContentLoaded", () => {
         handleConnect();
     }
 });
+
+// Tab Switch Helper
+function switchTab(tab) {
+    if (tab === "installed") {
+        if (tabBtnInstalled) tabBtnInstalled.classList.add("active");
+        if (tabBtnCatalog) tabBtnCatalog.classList.remove("active");
+        if (tabInstalledView) tabInstalledView.style.display = "block";
+        if (tabCatalogView) tabCatalogView.style.display = "none";
+    } else {
+        if (tabBtnCatalog) tabBtnCatalog.classList.add("active");
+        if (tabBtnInstalled) tabBtnInstalled.classList.remove("active");
+        if (tabCatalogView) tabCatalogView.style.display = "block";
+        if (tabInstalledView) tabInstalledView.style.display = "none";
+    }
+}
 
 // Logs helper
 function logToConsole(source, text, type = "output") {
@@ -208,12 +243,14 @@ async function fetchRouterStatus(isRefresh = false) {
         }
         setConnectionState("online");
         
-        lastServicesData = data.services;
+        lastServicesData = data.services_detailed || convertLegacyServices(data.services, data.versions);
+        lastCatalogData = data.catalog || {};
         lastVersionsData = data.versions;
         lastOpkgVersionsData = data.opkg_versions;
 
         renderSystemStats(data.system);
-        renderServicesTable(data.services, data.versions, data.opkg_versions);
+        renderServicesTable(lastServicesData, data.opkg_versions);
+        renderCatalogTable(lastCatalogData, data.opkg_versions);
 
         if (!isUpstreamFetching) {
             fetchUpstreamVersions();
@@ -309,8 +346,25 @@ async function fetchUpstreamVersions() {
 
     // Redraw table if router status data is loaded
     if (hasChanges && lastServicesData) {
-        renderServicesTable(lastServicesData, lastVersionsData, lastOpkgVersionsData);
+        renderServicesTable(lastServicesData, lastOpkgVersionsData);
     }
+}
+
+// Legacy services converter fallback
+function convertLegacyServices(services, versions) {
+    const res = {};
+    if (!services) return res;
+    for (const key in services) {
+        const meta = SERVICE_METADATA[key] || { name: key, desc: "" };
+        res[key] = {
+            name: meta.name,
+            desc: meta.desc,
+            git: meta.git,
+            status: services[key],
+            installed_version: versions ? versions[key] : null
+        };
+    }
+    return res;
 }
 
 // Compare versions to check if update is available
@@ -337,16 +391,36 @@ function isUpdateAvailable(installed, latest) {
     return false;
 }
 
-// Render Services list
-function renderServicesTable(services, versions, opkgVersions) {
-    if (!services) return;
+// Render Services list (Installed only)
+function renderServicesTable(servicesDetailed, opkgVersions) {
+    if (!servicesDetailed) return;
     
     servicesTbody.innerHTML = "";
     
-    for (const key in SERVICE_METADATA) {
-        const meta = SERVICE_METADATA[key];
-        const status = services[key] || "unknown";
-        const installedVersion = versions ? versions[key] : null;
+    let list = [];
+    if (Array.isArray(servicesDetailed)) {
+        list = servicesDetailed;
+    } else if (typeof servicesDetailed === "object" && servicesDetailed !== null) {
+        for (const k in servicesDetailed) {
+            list.push({ id: k, ...servicesDetailed[k] });
+        }
+    }
+    
+    if (installedCount) installedCount.textContent = list.length;
+    
+    if (list.length === 0) {
+        servicesTbody.innerHTML = '<tr><td colspan="5" class="empty-state">Установленные сервисы не обнаружены</td></tr>';
+        return;
+    }
+    
+    for (const item of list) {
+        const key = item.id;
+        const meta = SERVICE_METADATA[key] || {};
+        const name = item.name || meta.name || key;
+        const desc = item.desc || meta.desc || "";
+        const git = item.git || meta.git;
+        const status = item.status || "unknown";
+        const installedVersion = (lastVersionsData && lastVersionsData[key]) || item.installed_version || "—";
         const opkgVersion = opkgVersions ? opkgVersions[key] : null;
         const upstream = upstreamReleases[key];
         
@@ -358,11 +432,11 @@ function renderServicesTable(services, versions, opkgVersions) {
         tdName.className = "service-name";
         
         let gitLinkHtml = "";
-        if (meta.git) {
-            gitLinkHtml = ` <a href="${meta.git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
+        if (git) {
+            gitLinkHtml = ` <a href="${git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
         }
         
-        tdName.innerHTML = `<strong>${meta.name}${gitLinkHtml}</strong><span class="service-desc">${meta.desc}</span>`;
+        tdName.innerHTML = `<strong>${name}${gitLinkHtml}</strong><span class="service-desc">${desc}</span>`;
         tr.appendChild(tdName);
         
         // Status Badge Column
@@ -447,14 +521,6 @@ function renderServicesTable(services, versions, opkgVersions) {
             
             tdActions.appendChild(btnStop);
             tdActions.appendChild(btnRestart);
-        } else if (status === "stopped") {
-            const btnStart = document.createElement("button");
-            btnStart.className = "btn-action start";
-            btnStart.title = "Запустить";
-            btnStart.innerHTML = `<i class="fa-solid fa-play"></i>`;
-            btnStart.onclick = () => controlService(key, 'start');
-            
-            tdActions.appendChild(btnStart);
         } else {
             const btnStart = document.createElement("button");
             btnStart.className = "btn-action start";
@@ -462,17 +528,20 @@ function renderServicesTable(services, versions, opkgVersions) {
             btnStart.innerHTML = `<i class="fa-solid fa-play"></i>`;
             btnStart.onclick = () => controlService(key, 'start');
             
-            const btnStop = document.createElement("button");
-            btnStop.className = "btn-action stop";
-            btnStop.title = "Остановить";
-            btnStop.innerHTML = `<i class="fa-solid fa-stop"></i>`;
-            btnStop.onclick = () => controlService(key, 'stop');
-            
             tdActions.appendChild(btnStart);
-            tdActions.appendChild(btnStop);
         }
         
-        // Add Upgrade button directly in action column if update is available
+        // Uninstall button (except critical router infrastructure dropbear and lighttpd)
+        if (item.can_uninstall !== false && key !== "lighttpd" && key !== "dropbear") {
+            const btnUninstall = document.createElement("button");
+            btnUninstall.className = "btn-action uninstall";
+            btnUninstall.title = `Удалить ${name}`;
+            btnUninstall.innerHTML = `<i class="fa-solid fa-trash-can"></i>`;
+            btnUninstall.onclick = () => triggerUninstall(key, name);
+            tdActions.appendChild(btnUninstall);
+        }
+        
+        // Upgrade button
         if (hasGithubUpdate) {
             const updateBtn = document.createElement("button");
             updateBtn.className = "btn-upgrade";
@@ -489,6 +558,84 @@ function renderServicesTable(services, versions, opkgVersions) {
         
         tr.appendChild(tdActions);
         servicesTbody.appendChild(tr);
+    }
+}
+
+// Render Catalog list (Available for 1-click installation)
+function renderCatalogTable(catalog, opkgVersions) {
+    if (!catalogTbody) return;
+    
+    catalogTbody.innerHTML = "";
+    
+    let list = [];
+    if (Array.isArray(catalog)) {
+        list = catalog;
+    } else if (typeof catalog === "object" && catalog !== null) {
+        for (const k in catalog) {
+            list.push({ id: k, ...catalog[k] });
+        }
+    }
+    
+    if (catalogCount) catalogCount.textContent = list.length;
+    
+    if (list.length === 0) {
+        catalogTbody.innerHTML = '<tr><td colspan="4" class="empty-state">Все доступные приложения установлены! 🎉</td></tr>';
+        return;
+    }
+    
+    for (const item of list) {
+        const key = item.id;
+        const meta = SERVICE_METADATA[key] || {};
+        const name = item.name || meta.name || key;
+        const desc = item.desc || meta.desc || "";
+        const git = item.git || meta.git;
+        const opkgVersion = opkgVersions ? opkgVersions[key] : null;
+        
+        const tr = document.createElement("tr");
+        tr.setAttribute("data-catalog-service", key);
+        
+        // Name Column
+        const tdName = document.createElement("td");
+        tdName.className = "service-name";
+        let gitLinkHtml = "";
+        if (git) {
+            gitLinkHtml = ` <a href="${git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
+        }
+        tdName.innerHTML = `<strong>${name}${gitLinkHtml}</strong>`;
+        tr.appendChild(tdName);
+        
+        // Description Column
+        const tdDesc = document.createElement("td");
+        tdDesc.innerHTML = `<span class="service-desc" style="display:inline;">${desc}</span>`;
+        tr.appendChild(tdDesc);
+        
+        // Source / Version Column
+        const tdSource = document.createElement("td");
+        tdSource.className = "version-cell";
+        let sourceText = "OPKG";
+        if (opkgVersion) {
+            sourceText = `OPKG: ${opkgVersion}`;
+        } else if (item.package) {
+            sourceText = `OPKG: ${item.package}`;
+        } else if (item.custom) {
+            sourceText = "Скрипт / GitHub";
+        }
+        tdSource.textContent = sourceText;
+        tr.appendChild(tdSource);
+        
+        // Action Column (1-click Install button)
+        const tdAction = document.createElement("td");
+        tdAction.className = "actions-cell";
+        
+        const btnInstall = document.createElement("button");
+        btnInstall.className = "btn-install";
+        btnInstall.innerHTML = `<i class="fa-solid fa-download"></i> Установить`;
+        btnInstall.onclick = () => triggerCatalogInstall(key, item);
+        
+        tdAction.appendChild(btnInstall);
+        tr.appendChild(tdAction);
+        
+        catalogTbody.appendChild(tr);
     }
 }
 
@@ -531,11 +678,54 @@ async function controlService(service, action) {
     }
 }
 
+// Trigger Catalog App Install
+function triggerCatalogInstall(serviceId, item) {
+    if (!isConnected) return;
+    
+    const name = item.name || serviceId;
+    const cmd = item.install_cmd || (item.opkg_name ? `/opt/bin/opkg install ${item.opkg_name}` : `/opt/bin/opkg install ${serviceId}`);
+    
+    pendingUpdate = {
+        actionType: "catalog_install",
+        service: serviceId,
+        name: name,
+        command: cmd
+    };
+    
+    const confirmModalText = document.getElementById("confirm-modal-text");
+    confirmModalText.innerHTML = `Вы уверены, что хотите установить <strong>${name}</strong>?<br><span style="font-size: 11px; color: var(--text-muted); word-break: break-all;">Команда: ${cmd}</span>`;
+    
+    confirmModal.classList.add("active");
+    pauseAutoRefresh();
+}
+
+// Trigger Service Uninstall
+function triggerUninstall(serviceId, serviceName) {
+    if (!isConnected) return;
+    
+    pendingUpdate = {
+        actionType: "uninstall",
+        service: serviceId,
+        name: serviceName
+    };
+    
+    const confirmModalText = document.getElementById("confirm-modal-text");
+    confirmModalText.innerHTML = `Внимание! Вы уверены, что хотите полностью удалить <strong>${serviceName}</strong> с роутера?<br><span style="font-size: 12px; color: var(--accent-red);">Будет остановлен процесс и удален соответствующий пакет/скрипт.</span>`;
+    
+    confirmModal.classList.add("active");
+    pauseAutoRefresh();
+}
+
 // Trigger Service Update (GitHub)
 async function triggerUpdate(service, version, url) {
     if (!isConnected) return;
     
-    pendingUpdate = { service, version, url, isOpkg: false };
+    pendingUpdate = {
+        actionType: "github_update",
+        service,
+        version,
+        url
+    };
     
     // Setup modal text
     const confirmModalText = document.getElementById("confirm-modal-text");
@@ -555,16 +745,19 @@ async function triggerOpkgUpgrade(service, version) {
         "lighttpd": "lighttpd",
         "dropbear": "dropbear",
         "nfqws2": "nfqws2-keenetic",
-        "tg-ws-proxy": "tg-ws-proxy"
+        "tg-ws-proxy": "tg-ws-proxy",
+        "adguardhome": "adguardhome",
+        "transmission": "transmission-daemon-openssl",
+        "stubby": "stubby",
+        "iperf3": "iperf3"
     };
     
-    const packageName = opkgNameMap[service];
-    if (!packageName) return;
+    const packageName = opkgNameMap[service] || service;
     
     pendingUpdate = {
+        actionType: "opkg_update",
         service,
         version,
-        isOpkg: true,
         command: `/opt/bin/opkg install ${packageName}`
     };
     
@@ -586,10 +779,72 @@ async function handleConfirmYes() {
     if (!pendingUpdate) return;
     
     confirmModal.classList.remove("active");
-    const { service, version, url, isOpkg, command } = pendingUpdate;
+    const currentAction = pendingUpdate;
     pendingUpdate = null;
     
-    if (isOpkg) {
+    if (currentAction.actionType === "catalog_install") {
+        const { service, name, command } = currentAction;
+        logToConsole(name, `Запуск установки приложения...`, "cmd");
+        logToConsole(name, `Выполнение: ${command}`, "output");
+        
+        try {
+            const response = await fetch(`${routerHost}/api/exec`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ command, timeout: 240 }),
+                mode: "cors"
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            if (result.success) {
+                logToConsole(name, `Приложение успешно установлено!\n${result.output}`, "success");
+            } else {
+                logToConsole(name, `Ошибка установки (код ${result.exit_code}):\n${result.output}`, "error");
+            }
+        } catch (e) {
+            logToConsole(name, `Ошибка запроса на установку: ${e.message}`, "error");
+        } finally {
+            resumeAutoRefresh();
+            fetchRouterStatus(true);
+        }
+    } else if (currentAction.actionType === "uninstall") {
+        const { service, name } = currentAction;
+        logToConsole(name, `Запрос на удаление приложения...`, "cmd");
+        
+        try {
+            const response = await fetch(`${routerHost}/api/service`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ service, action: "uninstall" }),
+                mode: "cors"
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            if (result.success) {
+                logToConsole(name, `Успешно удалено!\n${result.output || ''}`, "success");
+            } else {
+                logToConsole(name, `Ошибка удаления:\n${result.output || ''}`, "error");
+            }
+        } catch (e) {
+            logToConsole(name, `Сбой запроса на удаление: ${e.message}`, "error");
+        } finally {
+            resumeAutoRefresh();
+            fetchRouterStatus(true);
+        }
+    } else if (currentAction.actionType === "opkg_update" || currentAction.isOpkg) {
+        const { service, version, command } = currentAction;
         logToConsole(service, `Запуск обновления OPKG пакета до версии ${version}...`, "cmd");
         logToConsole(service, `Выполнение команды: ${command}`, "output");
         
@@ -620,6 +875,7 @@ async function handleConfirmYes() {
             fetchRouterStatus(true);
         }
     } else {
+        const { service, version, url } = currentAction;
         logToConsole(service, `Запуск обновления с GitHub до версии ${version}...`, "cmd");
         logToConsole(service, `Загрузка с: ${url}`, "output");
         

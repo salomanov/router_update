@@ -9,6 +9,7 @@ import shutil
 import socket
 import logging
 import time
+import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, ThreadingMixIn
 
@@ -31,23 +32,153 @@ logging.getLogger().addHandler(console_handler)
 
 PORT = 8089
 
-# Map of service display names to init.d scripts and process names
-SERVICES = {
-    "dropbear": {"script": "/opt/etc/init.d/S51dropbear", "proc": "dropbear"},
-    "nfqws2": {"script": "/opt/etc/init.d/S51nfqws2", "proc": "nfqws"},
-    "tg-ws-proxy": {"script": "/opt/etc/init.d/S99tg-ws-proxy" if os.path.exists("/opt/etc/init.d/S99tg-ws-proxy") else "/opt/etc/init.d/S61tg-ws-proxy", "proc": "tg-ws-proxy"},
-    "mosquitto": {"script": "/opt/etc/init.d/S80mosquitto", "proc": "mosquitto"},
-    "lighttpd": {"script": "/opt/etc/init.d/S80lighttpd", "proc": "lighttpd"},
-    "tuya-mqtt-calibrator": {"script": "/opt/etc/init.d/S99tuya-mqtt-calibrator", "proc": "tuya_mqtt_calibrator.py"},
-    "usque": {"script": "/opt/etc/init.d/S99usque", "proc": "usque"},
-    "tailscale": {"script": "/opt/etc/init.d/S06tailscale", "proc": "tailscaled"},
-    "3proxy": {"script": "/opt/etc/init.d/S23proxy", "proc": "3proxy"}
+# Master Catalog of Supported Applications & Services
+KNOWN_SERVICES = {
+    "nfqws2": {
+        "name": "nfqws2 (zapret)",
+        "desc": "Обход систем фильтрации DPI / zapret",
+        "script_prefixes": ["S51nfqws2"],
+        "proc": "nfqws",
+        "package": "nfqws2-keenetic",
+        "git": "https://github.com/bol-van/zapret",
+        "install_cmd": "curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_nfqws2.sh | sh",
+        "is_core": True
+    },
+    "tg-ws-proxy": {
+        "name": "tg-ws-proxy",
+        "desc": "Прокси Telegram MTProto WebSockets (Go)",
+        "script_prefixes": ["S99tg-ws-proxy", "S61tg-ws-proxy"],
+        "proc": "tg-ws-proxy",
+        "package": "tg-ws-proxy",
+        "git": "https://github.com/spatiumstas/tg-ws-proxy-go",
+        "install_cmd": "curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_tg_proxy.sh | sh",
+        "is_core": True
+    },
+    "dropbear": {
+        "name": "SSH (Dropbear)",
+        "desc": "Сервер удаленного доступа SSH",
+        "script_prefixes": ["S51dropbear"],
+        "proc": "dropbear",
+        "package": "dropbear",
+        "git": "https://github.com/mkj/dropbear",
+        "install_cmd": "opkg install dropbear",
+        "is_core": True
+    },
+    "tailscale": {
+        "name": "Tailscale VPN",
+        "desc": "Mesh VPN / Exit Node для удаленного доступа",
+        "script_prefixes": ["S06tailscale", "S06tailscaled"],
+        "proc": "tailscaled",
+        "package": "tailscale",
+        "git": "https://github.com/tailscale/tailscale",
+        "install_cmd": "curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_tailscale.sh | sh",
+        "is_core": True
+    },
+    "mosquitto": {
+        "name": "Mosquitto MQTT",
+        "desc": "Брокер сообщений для умного дома",
+        "script_prefixes": ["S80mosquitto"],
+        "proc": "mosquitto",
+        "package": "mosquitto-ssl",
+        "git": "https://github.com/eclipse-mosquitto/mosquitto",
+        "install_cmd": "opkg install mosquitto-ssl",
+        "uninstall_pkg": "mosquitto-ssl",
+        "is_core": False
+    },
+    "lighttpd": {
+        "name": "Lighttpd",
+        "desc": "Веб-сервер роутера",
+        "script_prefixes": ["S80lighttpd"],
+        "proc": "lighttpd",
+        "package": "lighttpd",
+        "git": "https://github.com/lighttpd/lighttpd1.4",
+        "install_cmd": "opkg install lighttpd",
+        "uninstall_pkg": "lighttpd",
+        "is_core": False
+    },
+    "3proxy": {
+        "name": "3proxy",
+        "desc": "Универсальный HTTPS/SOCKS5 прокси-сервер",
+        "script_prefixes": ["S23proxy"],
+        "proc": "3proxy",
+        "package": "3proxy",
+        "git": "https://github.com/3proxy/3proxy",
+        "install_cmd": "opkg install 3proxy",
+        "uninstall_pkg": "3proxy",
+        "is_core": False
+    },
+    "usque": {
+        "name": "Usque SOCKS5",
+        "desc": "SOCKS5 прокси-клиент",
+        "script_prefixes": ["S99usque"],
+        "proc": "usque",
+        "package": None,
+        "git": "https://github.com/Diniboy1123/usque",
+        "install_cmd": None,
+        "is_core": False
+    },
+    "tuya-mqtt-calibrator": {
+        "name": "Tuya MQTT Calibrator",
+        "desc": "Калибратор Tuya датчиков через MQTT",
+        "script_prefixes": ["S99tuya-mqtt-calibrator"],
+        "proc": "tuya_mqtt_calibrator.py",
+        "package": None,
+        "is_core": False
+    },
+    "adguardhome": {
+        "name": "AdGuard Home",
+        "desc": "DNS-сервер для блокировки рекламы и трекеров",
+        "script_prefixes": ["S99adguardhome", "S90adguardhome"],
+        "proc": "AdGuardHome",
+        "package": "adguardhome",
+        "git": "https://github.com/AdguardTeam/AdGuardHome",
+        "install_cmd": "opkg install adguardhome",
+        "uninstall_pkg": "adguardhome",
+        "is_core": False
+    },
+    "transmission": {
+        "name": "Transmission",
+        "desc": "Торрент-клиент с веб-интерфейсом",
+        "script_prefixes": ["S88transmission", "S90transmission"],
+        "proc": "transmission-daemon",
+        "package": "transmission-daemon-openssl",
+        "git": "https://github.com/transmission/transmission",
+        "install_cmd": "opkg install transmission-daemon-openssl",
+        "uninstall_pkg": "transmission-daemon-openssl",
+        "is_core": False
+    },
+    "stubby": {
+        "name": "Stubby (DNS-over-TLS)",
+        "desc": "Шифрование DNS запросов через TLS (DoT)",
+        "script_prefixes": ["S24stubby"],
+        "proc": "stubby",
+        "package": "stubby",
+        "git": "https://github.com/getdnsapi/stubby",
+        "install_cmd": "opkg install stubby",
+        "uninstall_pkg": "stubby",
+        "is_core": False
+    },
+    "iperf3": {
+        "name": "iPerf3 Server",
+        "desc": "Тестирование пропускной способности сети",
+        "script_prefixes": ["S99iperf3", "S90iperf3"],
+        "proc": "iperf3",
+        "package": "iperf3",
+        "git": "https://github.com/esnet/iperf",
+        "install_cmd": "opkg install iperf3",
+        "uninstall_pkg": "iperf3",
+        "is_core": False
+    }
 }
+
+# Dynamic registry populated by discover_services()
+SERVICES = {}
 
 def get_process_status(proc_name):
     """Checks if a process is running by searching the active processes."""
+    if not proc_name:
+        return "unknown"
     try:
-        # Check running processes using ps
         ps_output = subprocess.check_output(["ps", "-w"]).decode("utf-8", errors="ignore")
         for line in ps_output.splitlines():
             if proc_name in line and "router_api.py" not in line and "ps" not in line:
@@ -57,17 +188,9 @@ def get_process_status(proc_name):
         logging.error(f"Error checking process {proc_name}: {e}")
         return "unknown"
 
-def get_service_status(service_name):
+def get_service_status(script_path, proc_name=None):
     """Retrieves current status of a service using its init script and process status."""
-    info = SERVICES.get(service_name)
-    if not info:
-        return "unknown"
-    
-    script_path = info["script"]
-    proc_name = info["proc"]
-    
-    # First, try to run init script status command if it exists
-    if os.path.exists(script_path):
+    if script_path and os.path.exists(script_path):
         try:
             res = subprocess.run([script_path, "status"], capture_output=True, text=True, timeout=5)
             output = (res.stdout + res.stderr).lower()
@@ -78,8 +201,101 @@ def get_service_status(service_name):
         except Exception:
             pass
             
-    # Fallback to checking active processes
-    return get_process_status(proc_name)
+    if proc_name:
+        return get_process_status(proc_name)
+    return "unknown"
+
+def discover_services():
+    """
+    Scans /opt/etc/init.d/ for all installed service scripts.
+    Returns:
+      installed: dict of { service_id: metadata }
+      catalog: list of known services that are NOT currently installed
+    """
+    global SERVICES
+    init_dir = "/opt/etc/init.d"
+    installed = {}
+    matched_known = set()
+
+    if os.path.exists(init_dir):
+        for fname in sorted(os.listdir(init_dir)):
+            # Only match S* init scripts, ignore rc.* and S90router-api
+            if not fname.startswith("S") or fname in ["S90router-api"]:
+                continue
+            script_path = os.path.join(init_dir, fname)
+            if not os.path.isfile(script_path) or not os.access(script_path, os.X_OK):
+                continue
+            
+            # Match against KNOWN_SERVICES
+            matched_id = None
+            for s_id, meta in KNOWN_SERVICES.items():
+                prefixes = meta.get("script_prefixes", [])
+                if any(fname == p or fname.startswith(p) for p in prefixes):
+                    matched_id = s_id
+                    break
+            
+            if matched_id:
+                meta = KNOWN_SERVICES[matched_id]
+                matched_known.add(matched_id)
+                installed[matched_id] = {
+                    "id": matched_id,
+                    "name": meta["name"],
+                    "desc": meta["desc"],
+                    "script": script_path,
+                    "proc": meta.get("proc"),
+                    "git": meta.get("git"),
+                    "package": meta.get("package"),
+                    "is_core": meta.get("is_core", False),
+                    "can_uninstall": not meta.get("is_core", False) and bool(meta.get("uninstall_pkg")),
+                    "uninstall_pkg": meta.get("uninstall_pkg")
+                }
+            else:
+                # Custom/third-party Entware service (e.g. S23redsocks, S50avahi, etc.)
+                clean_name = re.sub(r"^S\d+", "", fname)
+                service_id = clean_name.lower()
+                installed[service_id] = {
+                    "id": service_id,
+                    "name": clean_name,
+                    "desc": f"Служба Entware ({fname})",
+                    "script": script_path,
+                    "proc": clean_name,
+                    "git": None,
+                    "is_core": False,
+                    "can_uninstall": True,
+                    "custom": True
+                }
+
+    # Also check if tuya-mqtt-calibrator is installed via script if no init script
+    if "tuya-mqtt-calibrator" not in installed and (os.path.exists("/opt/scripts/tuya_mqtt_calibrator.py") or os.path.exists("/opt/usr/bin/tuya_mqtt_calibrator.py")):
+        meta = KNOWN_SERVICES["tuya-mqtt-calibrator"]
+        installed["tuya-mqtt-calibrator"] = {
+            "id": "tuya-mqtt-calibrator",
+            "name": meta["name"],
+            "desc": meta["desc"],
+            "script": "/opt/etc/init.d/S99tuya-mqtt-calibrator" if os.path.exists("/opt/etc/init.d/S99tuya-mqtt-calibrator") else None,
+            "proc": meta.get("proc"),
+            "git": None,
+            "is_core": False,
+            "can_uninstall": False
+        }
+        matched_known.add("tuya-mqtt-calibrator")
+
+    # Catalog of available known services that are NOT installed
+    catalog = []
+    for s_id, meta in KNOWN_SERVICES.items():
+        if s_id not in matched_known:
+            catalog.append({
+                "id": s_id,
+                "name": meta["name"],
+                "desc": meta["desc"],
+                "package": meta.get("package"),
+                "git": meta.get("git"),
+                "install_cmd": meta.get("install_cmd"),
+                "installed": False
+            })
+
+    SERVICES = installed
+    return installed, catalog
 
 def get_opkg_package_version(package_name):
     """Queries opkg status for a package and parses its version."""
@@ -123,18 +339,18 @@ def get_all_opkg_repo_versions(force=False):
         return _REPO_VERSIONS_CACHE["data"]
 
     opkg_versions = {}
-    opkg_versions["tg-ws-proxy"] = get_opkg_repo_version("tg-ws-proxy")
-    opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
-    opkg_versions["lighttpd"] = get_opkg_repo_version("lighttpd")
-    opkg_versions["dropbear"] = get_opkg_repo_version("dropbear")
-    opkg_versions["usque"] = get_opkg_repo_version("usque")
-    
-    nfqws_ver = get_opkg_repo_version("nfqws2-keenetic")
-    if not nfqws_ver:
-        nfqws_ver = get_opkg_repo_version("nfqws-keenetic-web")
-    if not nfqws_ver:
-        nfqws_ver = get_opkg_repo_version("nfqws2")
-    opkg_versions["nfqws2"] = nfqws_ver
+    for s_id, meta in KNOWN_SERVICES.items():
+        pkg = meta.get("package")
+        if pkg:
+            ver = get_opkg_repo_version(pkg)
+            if ver:
+                opkg_versions[s_id] = ver
+                
+    # Check alternate package names
+    if "nfqws2" not in opkg_versions or not opkg_versions["nfqws2"]:
+        opkg_versions["nfqws2"] = get_opkg_repo_version("nfqws2-keenetic") or get_opkg_repo_version("nfqws-keenetic-web") or get_opkg_repo_version("nfqws2")
+    if "mosquitto" not in opkg_versions or not opkg_versions["mosquitto"]:
+        opkg_versions["mosquitto"] = get_opkg_repo_version("mosquitto-ssl") or get_opkg_repo_version("mosquitto")
 
     _REPO_VERSIONS_CACHE["data"] = opkg_versions
     _REPO_VERSIONS_CACHE["timestamp"] = now
@@ -147,60 +363,43 @@ def get_installed_versions(force=False):
         return _VERSIONS_CACHE["data"]
 
     versions = {}
+    installed_dict, _ = discover_services()
     
-    # 1. tg-ws-proxy
-    tg_ver = get_opkg_package_version("tg-ws-proxy")
-    if not tg_ver:
-        # Check if the binary is executable and check --version
-        try:
-            out = subprocess.check_output(["/opt/bin/tg-ws-proxy", "--version"], stderr=subprocess.STDOUT, text=True)
-            tg_ver = out.strip()
-        except Exception:
-            tg_ver = "unknown"
-    versions["tg-ws-proxy"] = tg_ver
-
-    # 2. usque (custom binary version command)
-    try:
-        if os.path.exists("/opt/usr/bin/usque"):
-            out = subprocess.check_output(["/opt/usr/bin/usque", "version"], stderr=subprocess.STDOUT, text=True)
-            # Example output: usque version: v3.0.0
-            for line in out.splitlines():
-                if "version:" in line:
-                    versions["usque"] = line.split("version:")[1].strip()
-                    break
-            if "usque" not in versions:
-                versions["usque"] = out.strip().split("\n")[0]
+    for s_id in installed_dict.keys():
+        if s_id == "tg-ws-proxy":
+            tg_ver = get_opkg_package_version("tg-ws-proxy")
+            if not tg_ver:
+                try:
+                    out = subprocess.check_output(["/opt/bin/tg-ws-proxy", "--version"], stderr=subprocess.STDOUT, text=True)
+                    tg_ver = out.strip()
+                except Exception:
+                    tg_ver = "unknown"
+            versions["tg-ws-proxy"] = tg_ver
+        elif s_id == "usque":
+            try:
+                if os.path.exists("/opt/usr/bin/usque"):
+                    out = subprocess.check_output(["/opt/usr/bin/usque", "version"], stderr=subprocess.STDOUT, text=True)
+                    for line in out.splitlines():
+                        if "version:" in line:
+                            versions["usque"] = line.split("version:")[1].strip()
+                            break
+                    if "usque" not in versions:
+                        versions["usque"] = out.strip().split("\n")[0]
+                else:
+                    versions["usque"] = "not installed"
+            except Exception:
+                versions["usque"] = "unknown"
+        elif s_id == "tuya-mqtt-calibrator":
+            versions["tuya-mqtt-calibrator"] = "installed"
         else:
-            versions["usque"] = "not installed"
-    except Exception as e:
-        logging.error(f"Error checking usque version: {e}")
-        versions["usque"] = "unknown"
-
-    # 3. mosquitto (registers as mosquitto-ssl in Entware/Keenetic)
-    mosq_ver = get_opkg_package_version("mosquitto-ssl")
-    if not mosq_ver:
-        mosq_ver = get_opkg_package_version("mosquitto")
-    versions["mosquitto"] = mosq_ver or "unknown"
-
-    # 4. lighttpd
-    versions["lighttpd"] = get_opkg_package_version("lighttpd") or "unknown"
-
-    # 5. dropbear
-    versions["dropbear"] = get_opkg_package_version("dropbear") or "unknown"
-
-    # 6. nfqws2 (registers as nfqws2-keenetic or nfqws-keenetic-web in Entware)
-    nfqws_ver = get_opkg_package_version("nfqws2-keenetic")
-    if not nfqws_ver:
-        nfqws_ver = get_opkg_package_version("nfqws-keenetic-web")
-    if not nfqws_ver:
-        nfqws_ver = get_opkg_package_version("nfqws2")
-    versions["nfqws2"] = nfqws_ver or "unknown"
-
-    # 7. tuya-mqtt-calibrator
-    if os.path.exists("/opt/scripts/tuya_mqtt_calibrator.py") or os.path.exists("/opt/usr/bin/tuya_mqtt_calibrator.py"):
-        versions["tuya-mqtt-calibrator"] = "installed"
-    else:
-        versions["tuya-mqtt-calibrator"] = "not installed"
+            meta = KNOWN_SERVICES.get(s_id)
+            pkg = meta.get("package") if meta else s_id
+            ver = get_opkg_package_version(pkg) if pkg else None
+            if not ver and s_id == "nfqws2":
+                ver = get_opkg_package_version("nfqws2-keenetic") or get_opkg_package_version("nfqws-keenetic-web") or get_opkg_package_version("nfqws2")
+            if not ver and s_id == "mosquitto":
+                ver = get_opkg_package_version("mosquitto-ssl") or get_opkg_package_version("mosquitto")
+            versions[s_id] = ver or "installed"
 
     _VERSIONS_CACHE["data"] = versions
     _VERSIONS_CACHE["timestamp"] = now
@@ -362,10 +561,17 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
     def handle_status(self):
         logging.info("Status endpoint requested")
         
+        installed_dict, catalog = discover_services()
+        
         # Build list of services with current statuses
         service_statuses = {}
-        for srv in SERVICES.keys():
-            service_statuses[srv] = get_service_status(srv)
+        services_detailed = []
+        for s_id, s_info in installed_dict.items():
+            status = get_service_status(s_info.get("script"), s_info.get("proc"))
+            service_statuses[s_id] = status
+            s_copy = dict(s_info)
+            s_copy["status"] = status
+            services_detailed.append(s_copy)
             
         # Build OPKG repository versions list (cached)
         opkg_versions = get_all_opkg_repo_versions()
@@ -374,7 +580,9 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             "system": get_system_stats(),
             "versions": get_installed_versions(),
             "opkg_versions": opkg_versions,
-            "services": service_statuses
+            "services": service_statuses,
+            "services_detailed": services_detailed,
+            "catalog": catalog
         }
         self.send_json_response(response)
 
@@ -386,19 +594,54 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             self.send_error_response(400, "Missing 'service' or 'action' parameter")
             return
             
-        if service not in SERVICES:
-            self.send_error_response(404, f"Service '{service}' is not managed")
+        installed_dict, _ = discover_services()
+        if service not in installed_dict:
+            self.send_error_response(404, f"Service '{service}' is not installed")
             return
             
+        s_info = installed_dict[service]
+
+        if action == "uninstall":
+            uninstall_pkg = s_info.get("uninstall_pkg")
+            logging.info(f"Uninstall requested for {service} (pkg: {uninstall_pkg})")
+            output_lines = []
+            
+            # Stop service first if running
+            script_path = s_info.get("script")
+            if script_path and os.path.exists(script_path):
+                subprocess.run([script_path, "stop"], capture_output=True)
+                output_lines.append(f"Служба {service} остановлена.")
+                
+            if uninstall_pkg:
+                res = subprocess.run(["/opt/bin/opkg", "remove", uninstall_pkg], capture_output=True, text=True, timeout=60)
+                output_lines.append(res.stdout + res.stderr)
+                success = res.returncode == 0
+            else:
+                if script_path and os.path.exists(script_path):
+                    os.chmod(script_path, 0o644)
+                    output_lines.append(f"Скрипт {script_path} отключен.")
+                success = True
+
+            # Invalidate caches
+            _VERSIONS_CACHE["data"] = None
+            _REPO_VERSIONS_CACHE["data"] = None
+            
+            self.send_json_response({
+                "success": success,
+                "output": "\n".join(output_lines).strip(),
+                "new_status": "not_installed"
+            })
+            return
+
         if action not in ["start", "stop", "restart", "status"]:
             self.send_error_response(400, f"Unsupported action '{action}'")
             return
             
-        script_path = SERVICES[service]["script"]
+        script_path = s_info.get("script")
         logging.info(f"Service action requested: {service} -> {action}")
         
-        if not os.path.exists(script_path):
-            self.send_error_response(500, f"Init script for {service} not found at {script_path}")
+        if not script_path or not os.path.exists(script_path):
+            self.send_error_response(500, f"Init script for {service} not found")
             return
             
         try:
@@ -407,7 +650,7 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             success = res.returncode == 0
             
             # Recheck status
-            new_status = get_service_status(service)
+            new_status = get_service_status(script_path, s_info.get("proc"))
             
             self.send_json_response({
                 "success": success,

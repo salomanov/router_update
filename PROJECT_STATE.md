@@ -37,14 +37,24 @@
      - Implemented in-memory TTL caching (60s for installed versions, 300s for repo versions) with cache invalidation on package actions.
      - Added configurable timeouts (default 180s), graceful timeout recovery, and automatic lock cleanup.
      - Updated `app.js` with 180s timeout headers and verified full functionality via web UI.
+6. **Dynamic Modular Architecture & Application Catalog (October 2026):**
+   - Replaced the hardcoded 9-service list with dynamic auto-discovery (`discover_services()` in `router_api.py`) scanning `/opt/etc/init.d/S*`.
+   - Added Tab navigation in Web Control Panel:
+     - **«Установленные службы»**: Shows only services actually present and configured on this specific router (running/stopped status, version, upgrade buttons, uninstall button).
+     - **«Каталог приложений»**: Shows all uninstalled optional packages (AdGuard Home, Transmission, Stubby, iPerf3, Mosquitto, etc.) with 1-click «Установить» button executing `/api/exec`.
+   - Any router now gets a clean, uncluttered interface showing only its actual services without red "Остановлен" badges for missing optional software.
+7. **Tuya MQTT Calibrator Status & Locations:**
+   - **Development / Exploration sources:** Located on PC at `D:\Мой комп\Рабочий стол\tuya` (`1.js`, `1.py`, `getTuyaData.js`, `package.json`, etc.).
+   - **Production router daemon:** Running from `/opt/scripts/tuya_mqtt_calibrator.py` managed by init script `/opt/etc/init.d/S99tuya-mqtt-calibrator`.
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (412 domains).
 - `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3, Entware).
-- `/opt/scripts/router_api.py`: Multi-threaded web control panel API.
+- `/opt/scripts/router_api.py`: Multi-threaded web control panel API with dynamic discovery.
 - `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
 - `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
+- `/opt/scripts/tuya_mqtt_calibrator.py`: Tuya MQTT calibrator service script.
 
 ## Next Steps
 - Maintain sync between local Git repository and router.

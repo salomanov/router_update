@@ -100,37 +100,49 @@
                 <button id="btn-refresh" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate"></i> Обновить статус</button>
             </div>
             
-            <div class="services-table-wrapper">
+            <div class="tabs-nav">
+                <button id="tab-btn-installed" class="tab-btn active">
+                    <i class="fa-solid fa-circle-check"></i> Установленные службы (<span id="installed-count">0</span>)
+                </button>
+                <button id="tab-btn-catalog" class="tab-btn">
+                    <i class="fa-solid fa-boxes-packing"></i> Каталог приложений (<span id="catalog-count">0</span>)
+                </button>
+            </div>
+            
+            <!-- Installed Services Tab -->
+            <div id="tab-installed-view" class="services-table-wrapper">
                 <table class="services-table">
                     <thead>
                         <tr>
                             <th>Сервис</th>
                             <th>Статус</th>
-                             <th>Установленная версия</th>
-                             <th>Релиз OPKG / GitHub</th>
-                             <th>Управление</th>
+                            <th>Установленная версия</th>
+                            <th>Релиз OPKG / GitHub</th>
+                            <th>Управление</th>
                         </tr>
                     </thead>
                     <tbody id="services-tbody">
-                        <!-- Service row dynamic template:
-                        <tr data-service="tg-ws-proxy">
-                            <td class="service-name">
-                                <strong>tg-ws-proxy</strong>
-                                <span class="service-desc">Telegram WS Proxy</span>
-                            </td>
-                            <td>
-                                <span class="badge running"><i class="fa-solid fa-circle"></i> Запущен</span>
-                            </td>
-                            <td class="version-cell">0.7.2-1</td>
-                            <td class="version-cell">0.7.2-1 <span class="badge-update success">Latest</span></td>
-                            <td class="actions-cell">
-                                <button class="btn btn-action stop" title="Остановить"><i class="fa-solid fa-stop"></i></button>
-                                <button class="btn btn-action restart" title="Перезапустить"><i class="fa-solid fa-arrow-rotate-right"></i></button>
-                            </td>
-                        </tr>
-                        -->
                         <tr>
                             <td colspan="5" class="empty-state">Нажмите «Подключить» для загрузки списка сервисов</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Application Catalog Tab -->
+            <div id="tab-catalog-view" class="services-table-wrapper" style="display: none;">
+                <table class="services-table">
+                    <thead>
+                        <tr>
+                            <th>Приложение</th>
+                            <th>Описание</th>
+                            <th>Релиз в OPKG / Источник</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="catalog-tbody">
+                        <tr>
+                            <td colspan="4" class="empty-state">Загрузка каталога приложений...</td>
                         </tr>
                     </tbody>
                 </table>
