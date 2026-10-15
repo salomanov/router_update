@@ -44,8 +44,18 @@
      - **«Каталог приложений»**: Shows all uninstalled optional packages (AdGuard Home, Transmission, Stubby, iPerf3, Mosquitto, etc.) with 1-click «Установить» button executing `/api/exec`.
    - Any router now gets a clean, uncluttered interface showing only its actual services without red "Остановлен" badges for missing optional software.
 7. **Tuya MQTT Calibrator Status & Locations:**
-   - **Development / Exploration sources:** Located on PC at `D:\Мой комп\Рабочий стол\tuya` (`1.js`, `1.py`, `getTuyaData.js`, `package.json`, etc.).
-   - **Production router daemon:** Running from `/opt/scripts/tuya_mqtt_calibrator.py` managed by init script `/opt/etc/init.d/S99tuya-mqtt-calibrator`.
+   - **Primary Project Repository:** `E:\Проекты\tuya_mqtt_calibrator` (GitHub: `https://github.com/salomanov/MQTT.git`).
+   - **Production router daemon:** Running from `/opt/scripts/tuya_mqtt_calibrator.py` managed by `/opt/etc/init.d/S99tuya-mqtt-calibrator`.
+8. **Tuya MQTT Calibrator Enhanced Edition (October 2026):**
+   - Upgraded `tinytuya` on the router to version **1.20.0**.
+   - Enhanced `tuya_mqtt_calibrator.py`:
+     - Auto-reconnect to Mosquitto broker on router boot (`retry_first_connection=True`, `connect_async`).
+     - Config extraction: loads `config.json` or `/opt/etc/tuya_mqtt_calibrator.json` with fallback.
+     - Added read-only query topic `tuya/calibrate/get` for querying status without modifying calibration.
+     - Status published with `retain=True` and LWT availability `tuya/calibrate/availability` (`online`/`offline`).
+     - Standardized logging to rotating file `/opt/var/log/tuya_mqtt_calibrator.log`.
+   - Fixed `router_api.py` status check: negative status ("not running") evaluated before positive substring.
+   - Pushed commit `63db4b9` to `salomanov/MQTT.git` and deployed live to router.
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
@@ -55,16 +65,7 @@
 - `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
 - `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
 - `/opt/scripts/tuya_mqtt_calibrator.py`: Tuya MQTT calibrator service script.
+- `/opt/var/log/tuya_mqtt_calibrator.log`: Rotating runtime log for Tuya calibrator.
 
-## Next Steps / План на вечер
-- **Tuya MQTT Calibrator Improvements:**
-  - Уточнить новый путь к перемещенной/переименованной папке репозитория MQTT.
-  - Реализовать улучшения в `tuya_mqtt_calibrator.py`:
-    1. Автореконнект к брокеру (`retry_first_connection=True` и `connect_async`).
-    2. Вынос настроек (IP, Device ID, Key) в `config.json`.
-    3. `retain=True` для статуса и LWT (`online`/`offline`).
-    4. Топик `tuya/calibrate/get` для чтения текущей температуры и калибровки без записи.
-    5. Честное логирование с ротацией вместо глухого вывода в `/dev/null`.
-  - Обновить библиотеку `tinytuya` до 1.20.0 на роутере.
-  - Зафиксировать изменения в Git и отправить в репозиторий GitHub.
-  - Развернуть обновленный скрипт на роутере и запустить сервис.
+## Next Steps
+- Continue monitoring system stability and router services.
