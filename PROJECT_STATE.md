@@ -56,5 +56,15 @@
 - `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
 - `/opt/scripts/tuya_mqtt_calibrator.py`: Tuya MQTT calibrator service script.
 
-## Next Steps
-- Maintain sync between local Git repository and router.
+## Next Steps / План на вечер
+- **Tuya MQTT Calibrator Improvements:**
+  - Уточнить новый путь к перемещенной/переименованной папке репозитория MQTT.
+  - Реализовать улучшения в `tuya_mqtt_calibrator.py`:
+    1. Автореконнект к брокеру (`retry_first_connection=True` и `connect_async`).
+    2. Вынос настроек (IP, Device ID, Key) в `config.json`.
+    3. `retain=True` для статуса и LWT (`online`/`offline`).
+    4. Топик `tuya/calibrate/get` для чтения текущей температуры и калибровки без записи.
+    5. Честное логирование с ротацией вместо глухого вывода в `/dev/null`.
+  - Обновить библиотеку `tinytuya` до 1.20.0 на роутере.
+  - Зафиксировать изменения в Git и отправить в репозиторий GitHub.
+  - Развернуть обновленный скрипт на роутере и запустить сервис.

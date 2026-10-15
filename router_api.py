@@ -194,10 +194,10 @@ def get_service_status(script_path, proc_name=None):
         try:
             res = subprocess.run([script_path, "status"], capture_output=True, text=True, timeout=5)
             output = (res.stdout + res.stderr).lower()
-            if "running" in output or "alive" in output or "started" in output:
-                return "running"
-            elif "stopped" in output or "not running" in output:
+            if "not running" in output or "stopped" in output or "dead" in output or "inactive" in output:
                 return "stopped"
+            elif "running" in output or "alive" in output or "started" in output or "active" in output:
+                return "running"
         except Exception:
             pass
             
