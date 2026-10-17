@@ -644,18 +644,32 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             self.send_error_response(500, f"Init script for {service} not found")
             return
             
+        # start/restart scripts can block up to 30s (e.g. usque wait_for_ip loop)
+        cmd_timeout = 40 if action in ("start", "restart") else 10
+
         try:
-            res = subprocess.run([script_path, action], capture_output=True, text=True, timeout=15)
+            res = subprocess.run([script_path, action], capture_output=True, text=True, timeout=cmd_timeout)
             output = res.stdout + res.stderr
             success = res.returncode == 0
-            
+
             # Recheck status
             new_status = get_service_status(script_path, s_info.get("proc"))
-            
+
             self.send_json_response({
                 "success": success,
                 "exit_code": res.returncode,
                 "output": output.strip(),
+                "new_status": new_status
+            })
+        except subprocess.TimeoutExpired:
+            # Script timed out (e.g. start blocked on wait_for_ip).
+            # The service may already be running — check actual process status.
+            logging.warning(f"Service action '{action}' on '{service}' timed out after {cmd_timeout}s — checking real status")
+            new_status = get_service_status(script_path, s_info.get("proc"))
+            self.send_json_response({
+                "success": new_status == "running",
+                "exit_code": -1,
+                "output": f"Скрипт завершён по таймауту ({cmd_timeout}с). Реальный статус: {new_status}.",
                 "new_status": new_status
             })
         except Exception as e:
