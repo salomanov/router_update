@@ -44,7 +44,7 @@
      - **«Каталог приложений»**: Shows all uninstalled optional packages (AdGuard Home, Transmission, Stubby, iPerf3, Mosquitto, etc.) with 1-click «Установить» button executing `/api/exec`.
    - Any router now gets a clean, uncluttered interface showing only its actual services without red "Остановлен" badges for missing optional software.
 7. **Tuya MQTT Calibrator Status & Locations:**
-   - **Primary Project Repository:** `E:\Проекты\tuya_mqtt_calibrator` (GitHub: `https://github.com/salomanov/MQTT.git`).
+   - **Primary Project Repository:** `E:\Projects\tuya_mqtt_calibrator` (GitHub: `https://github.com/salomanov/MQTT.git`).
    - **Production router daemon:** Running from `/opt/scripts/tuya_mqtt_calibrator.py` managed by `/opt/etc/init.d/S99tuya-mqtt-calibrator`.
 8. **Tuya MQTT Calibrator Enhanced Edition (October 2026):**
    - Upgraded `tinytuya` on the router to version **1.20.0**.
@@ -56,10 +56,19 @@
      - Standardized logging to rotating file `/opt/var/log/tuya_mqtt_calibrator.log`.
    - Fixed `router_api.py` status check: negative status ("not running") evaluated before positive substring.
    - Pushed commit `63db4b9` to `salomanov/MQTT.git` and deployed live to router.
+9. **Usque SOCKS5 HTTP 500 Fix & Service Timeout (October 2026):**
+   - `handle_service_action()` in `router_api.py` had a rigid 15s timeout. Usque `start` takes up to 30s during `wait_for_ip`.
+   - Increased timeout to 40s for `start`/`restart` actions.
+   - Added graceful handling for `subprocess.TimeoutExpired` checking actual process status instead of returning HTTP 500.
+   - Deployed to router and committed as `f097052`.
+10. **Repository Path Migration & Git Sync Audit (October 2026):**
+   - Repositories relocated to `E:\Projects\Router_api` and `E:\Projects\tuya_mqtt_calibrator`.
+   - Synchronized `configs/lists/user.list` (added 6 uncommitted domains from router: `antigravity-unleash.goog`, `daily-cloudcode-pa.googleapis.com`, `lh3.googleusercontent.com`, `play.googleapis.com`, `www.googleapis.com`, `zyxel.com`).
+   - Discovered root cause of PC DNS resolution failure for Gemini and OpenRouter: Keenetic upstream DoT `xbox-dns.ru` returns `0.0.0.0` (sinkhole) for non-gaming domains.
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
-- `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (412 domains).
+- `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).
 - `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3, Entware).
 - `/opt/scripts/router_api.py`: Multi-threaded web control panel API with dynamic discovery.
 - `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
@@ -68,4 +77,4 @@
 - `/opt/var/log/tuya_mqtt_calibrator.log`: Rotating runtime log for Tuya calibrator.
 
 ## Next Steps
-- Continue monitoring system stability and router services.
+- Adjust or reorder Keenetic DoT upstream DNS servers so `xbox-dns.ru` does not sinkhole AI/web domains for general LAN traffic.
