@@ -47,6 +47,16 @@ CACHE_BUST="?nocache=$(date +%s)$$"
 # Скачивание nfqws2.conf
 curl -sL -o /opt/etc/nfqws2/nfqws2.conf "${REPO_RAW}/nfqws2.conf${CACHE_BUST}"
 
+# Автоопределение активного WAN-интерфейса роутера (PPPoE ppp0, IPoE eth3, USB-модем и др.)
+DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
+if [ -z "$DEF_IFACE" ]; then
+    DEF_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+fi
+if [ -n "$DEF_IFACE" ]; then
+    printf "Автоопределен интернет-интерфейс: %s\n" "$DEF_IFACE"
+    sed -i -E "s#^ISP_INTERFACE=\".+\"#ISP_INTERFACE=\"$DEF_IFACE\"#" /opt/etc/nfqws2/nfqws2.conf
+fi
+
 # Скачивание списков
 curl -sL -o /opt/etc/nfqws2/lists/user.list "${REPO_RAW}/lists/user.list${CACHE_BUST}"
 curl -sL -o /opt/etc/nfqws2/lists/exclude.list "${REPO_RAW}/lists/exclude.list${CACHE_BUST}"

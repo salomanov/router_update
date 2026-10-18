@@ -40,8 +40,12 @@ printf "\n${YELLOW}>>> [3/4] Установка Telegram Proxy (tg-ws-proxy)...$
 curl -sL "${REPO_RAW}/install_tg_proxy.sh${CACHE_BUST}" | sh
 
 # 4. Tailscale VPN
-printf "\n${YELLOW}>>> [4/4] Установка Tailscale (VPN Exit Node)...${NC}\n"
+printf "\n${YELLOW}>>> [4/5] Установка Tailscale (VPN Exit Node)...${NC}\n"
 curl -sL "${REPO_RAW}/install_tailscale.sh${CACHE_BUST}" | sh
+
+# 5. Защищенный DoT/DoH DNS
+printf "\n${YELLOW}>>> [5/5] Настройка защищенного DoT/DoH DNS (без цензуры провайдеров)...${NC}\n"
+curl -sL "${REPO_RAW}/setup_dns.sh${CACHE_BUST}" | sh
 
 printf "\n${GREEN}==========================================================${NC}\n"
 printf "${GREEN}      ВСЕ КОМПОНЕНТЫ УСПЕШНО УСТАНОВЛЕНЫ И ЗАПУЩЕНЫ!      ${NC}\n"
@@ -49,4 +53,5 @@ printf "${GREEN}==========================================================${NC}\
 printf "👉 Веб-панель управления: http://192.168.1.1:8089/\n"
 printf "👉 YouTube 4K, Instagram и трекеры: активны через nfqws2\n"
 printf "👉 Прокси Telegram: активен на порту 1443\n"
+printf "👉 DNS: защищен через DoT/DoH (dns.malw.link, dns.geohide.ru, dns.dns-ai.ru)\n"
 printf "👉 Для завершения привязки Tailscale перейдите по ссылке выше в консоли.\n\n"

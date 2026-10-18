@@ -41,7 +41,7 @@ if [ -f "$API_PIDFILE" ]; then
 fi
 
 # 2. Проверка и установка системных зависимостей
-DEPS="python3-light python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
+DEPS="python3-light python3-email python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
 NEED_UPDATE=0
 
 printf "Проверка зависимостей...\n"
@@ -77,11 +77,16 @@ mkdir -p /opt/share/router-control-center
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
-printf "Загрузка бэкенда и скрипта инициализации...\n"
+printf "Загрузка бэкенда, вспомогательных скриптов и init-файлов...\n"
 curl -sL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}"
 if [ $? -ne 0 ]; then
     printf "${RED}Ошибка при скачивании бэкенда.${NC}\n"
     exit 1
+fi
+
+curl -sL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}"
+if [ $? -ne 0 ]; then
+    printf "${RED}Внимание: не удалось скачать opkg_update.py.${NC}\n"
 fi
 
 curl -sL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api${CACHE_BUST}"
@@ -101,6 +106,7 @@ fi
 
 # 5. Права на запуск
 chmod 755 /opt/scripts/router_api.py
+chmod 755 /opt/scripts/opkg_update.py 2>/dev/null || true
 chmod 755 /opt/etc/init.d/S90router-api
 
 # 6. Запуск

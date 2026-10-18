@@ -82,6 +82,13 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_
 * Запускает прокси на порту 1443.
 * Ссылка для подключения генерируется автоматически и видна в веб-панели управления.
 
+### 5. Только защищенный DoT/DoH DNS
+```sh
+curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/setup_dns.sh | sh
+```
+* Включает защиту от DNS Rebinding в Keenetic.
+* Настраивает защищенные апстримы DoT/DoH (`dns.malw.link`, `dns.geohide.ru`, `dns.dns-ai.ru`), обходящие блокировки и подмену DNS операторами связи.
+
 ---
 
 ## Настройка удаленного доступа с телефона (Tailscale)

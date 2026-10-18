@@ -65,6 +65,11 @@
    - Repositories relocated to `E:\Projects\Router_api` and `E:\Projects\tuya_mqtt_calibrator`.
    - Synchronized `configs/lists/user.list` (added 6 uncommitted domains from router: `antigravity-unleash.goog`, `daily-cloudcode-pa.googleapis.com`, `lh3.googleusercontent.com`, `play.googleapis.com`, `www.googleapis.com`, `zyxel.com`).
    - Discovered root cause of PC DNS resolution failure for Gemini and OpenRouter: Keenetic upstream DoT `xbox-dns.ru` returns `0.0.0.0` (sinkhole) for non-gaming domains.
+11. **Fresh Router Installer Hardening & DNS Automation (October 2026):**
+   - `install.sh`: Added `python3-email` dependency (critical for `http.server`) and automated download of `opkg_update.py` into `/opt/scripts`.
+   - `install_nfqws2.sh`: Added auto-detection and dynamic adaptation of `ISP_INTERFACE` to preserve whatever WAN connection the router uses (PPPoE `ppp0`, IPoE `eth3`, USB-modem, WISP) instead of hardcoding `ppp0`.
+   - `setup_dns.sh`: Created standalone installer applying the working DoT/DoH configuration (`dns.malw.link`, `dns.geohide.ru`, `dns.dns-ai.ru`) via Keenetic `ndmc`.
+   - `install_all.sh`: Integrated `setup_dns.sh` as Step 5 in All-in-One deployment.
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
@@ -75,6 +80,7 @@
 - `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
 - `/opt/scripts/tuya_mqtt_calibrator.py`: Tuya MQTT calibrator service script.
 - `/opt/var/log/tuya_mqtt_calibrator.log`: Rotating runtime log for Tuya calibrator.
+- `setup_dns.sh`: Automatic Keenetic DoT/DoH configuration script.
 
 ## Next Steps
-- Adjust or reorder Keenetic DoT upstream DNS servers so `xbox-dns.ru` does not sinkhole AI/web domains for general LAN traffic.
+- Verify live installation flow on target router.
