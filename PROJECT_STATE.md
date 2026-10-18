@@ -70,11 +70,17 @@
    - `install_nfqws2.sh`: Added auto-detection and dynamic adaptation of `ISP_INTERFACE` to preserve whatever WAN connection the router uses (PPPoE `ppp0`, IPoE `eth3`, USB-modem, WISP) instead of hardcoding `ppp0`.
    - `setup_dns.sh`: Created standalone installer applying the working DoT/DoH configuration (`dns.malw.link`, `dns.geohide.ru`, `dns.dns-ai.ru`) via Keenetic `ndmc`.
    - `install_all.sh`: Integrated `setup_dns.sh` as Step 5 in All-in-One deployment.
+12. **Multi-Device YouTube Fix & DNS-Proxy Stabilization (October 2026):**
+   - Resolved YouTube buffering/failure on mobile phones and Smart TVs:
+     - Disabled pseudo-IPv6 SLAAC advertisement (`no ipv6 subnet Default`, `no ipv6 local-prefix default`) on Home LAN, eliminating the IPv6 black hole when the ISP provides no WAN IPv6 route.
+     - Extended `020-block-quic.sh` to reject QUIC (UDP 443) on both IPv4 (`iptables`) and IPv6 (`ip6tables`), forcing phones and TV apps to instantly fallback to TCP 443 HTTPS with nfqws2 desync.
+     - Removed failing `https://dns.geohide.ru:444/dns-query` DoH upstream from Keenetic `dns-proxy` and `setup_dns.sh` (eliminated recurring TLS certificate errors and DoH crashes logged in system log).
 
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).
 - `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3, Entware).
+- `/opt/etc/ndm/netfilter.d/020-block-quic.sh`: Dual-stack IPv4/IPv6 QUIC (UDP 443) blocker.
 - `/opt/scripts/router_api.py`: Multi-threaded web control panel API with dynamic discovery.
 - `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
 - `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
@@ -83,4 +89,4 @@
 - `setup_dns.sh`: Automatic Keenetic DoT/DoH configuration script.
 
 ## Next Steps
-- Verify live installation flow on target router.
+- Verify YouTube playback across mobile devices, Smart TVs, and PCs.

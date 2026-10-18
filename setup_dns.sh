@@ -30,7 +30,6 @@ ndmc -c 'dns-proxy tls upstream dns.dns-ai.ru' >/dev/null 2>&1
 
 # Добавление быстрых апстримов DoH (порт 443)
 ndmc -c 'dns-proxy https upstream https://dns.malw.link/dns-query dnsm' >/dev/null 2>&1
-ndmc -c 'dns-proxy https upstream https://dns.geohide.ru:444/dns-query dnsm' >/dev/null 2>&1
 ndmc -c 'dns-proxy https upstream https://dns.dns-ai.ru/dns-query dnsm' >/dev/null 2>&1
 
 # Сохранение конфигурации в энергонезависимую память роутера
