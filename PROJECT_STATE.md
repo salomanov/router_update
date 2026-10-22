@@ -76,6 +76,11 @@
      - Extended `020-block-quic.sh` to reject QUIC (UDP 443) on both IPv4 (`iptables`) and IPv6 (`ip6tables`), forcing phones and TV apps to instantly fallback to TCP 443 HTTPS with nfqws2 desync.
      - Removed failing `https://dns.geohide.ru:444/dns-query` DoH upstream from Keenetic `dns-proxy` and `setup_dns.sh` (eliminated recurring TLS certificate errors and DoH crashes logged in system log).
 
+13. **Tailscale Service Health & Init Conflict Resolution (October 2026):**
+   - Fixed Logged out status caused by conflicting init script /opt/etc/init.d/S06tailscaled (which loaded an empty state file).
+   - Removed conflicting script, created symlink /opt/var/tailscaled.state -> /opt/var/lib/tailscale/tailscaled.state.
+   - Tailscale is active and healthy: IP 100.64.192.44, acting as Exit Node, direct connectivity verified (48ms to active peers).
+
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).
