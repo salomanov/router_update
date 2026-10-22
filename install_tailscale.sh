@@ -51,6 +51,11 @@ if [ ! -x "/opt/bin/tailscaled" ]; then
     exit 1
 fi
 
+# Удаление конфликтующего стандартного init-скрипта opkg и создание симлинка состояния
+rm -f /opt/etc/init.d/S06tailscaled 2>/dev/null
+mkdir -p /opt/var/lib/tailscale
+ln -sf /opt/var/lib/tailscale/tailscaled.state /opt/var/tailscaled.state 2>/dev/null || true
+
 # 5. Создание скрипта автозапуска S06tailscale
 printf "${YELLOW}[4/5] Настройка автозапуска службы tailscaled...${NC}\n"
 cat << 'EOF' > /opt/etc/init.d/S06tailscale
