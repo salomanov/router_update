@@ -746,8 +746,8 @@ async function triggerOpkgUpgrade(service, version) {
         "dropbear": "dropbear",
         "nfqws2": "nfqws2-keenetic",
         "tg-ws-proxy": "tg-ws-proxy",
-        "adguardhome": "adguardhome",
-        "transmission": "transmission-daemon-openssl",
+        "adguardhome": "adguardhome-go",
+        "transmission": "transmission-daemon",
         "stubby": "stubby",
         "iperf3": "iperf3"
     };

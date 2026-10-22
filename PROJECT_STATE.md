@@ -81,6 +81,20 @@
    - Removed conflicting script, created symlink /opt/var/tailscaled.state -> /opt/var/lib/tailscale/tailscaled.state.
    - Tailscale is active and healthy: IP 100.64.192.44, acting as Exit Node, direct connectivity verified (48ms to active peers).
 
+14. **GRouter Web Catalog & nfqws Web Interface Fix for Fresh Installs (October 2026):**
+   - **Catalog Application Installation Fix:**
+     - In `router_api.py` and `app.js`, fixed invalid package names that caused Entware `Cannot find package ...` errors:
+       - `adguardhome`: Updated from `adguardhome` to official Entware package `adguardhome-go`.
+       - `transmission`: Updated from `transmission-daemon-openssl` to `transmission-daemon transmission-web`.
+       - Explicitly prefixed OPKG invocations with `/opt/bin/opkg` across all known services.
+     - Fixed `uninstall` handler in `router_api.py` to support multi-package removal (`cmd = ["/opt/bin/opkg", "remove"] + uninstall_pkg.split()`).
+     - Added automatic OPKG cache validation in `/api/exec`: if package lists in `/opt/var/opkg-lists` are missing/empty on fresh routers, the backend auto-fetches them before running `opkg install`.
+     - Added automatic cleanup of stale `/opt/tmp/opkg.lock` files before executing `opkg` commands.
+   - **nfqws Web Interface Automation:**
+     - Updated `install_nfqws2.sh` to install both `nfqws2-keenetic` and `nfqws-keenetic-web` (providing the official web UI on port 8088 / 90 via lighttpd and php8-cgi).
+     - Added automatic restart of `lighttpd` and printed direct web interface URL `http://192.168.1.1:8088/` upon completion.
+     - Updated `install_all.sh` to display the nfqws web interface link alongside GRouter.
+
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).

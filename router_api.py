@@ -61,7 +61,7 @@ KNOWN_SERVICES = {
         "proc": "dropbear",
         "package": "dropbear",
         "git": "https://github.com/mkj/dropbear",
-        "install_cmd": "opkg install dropbear",
+        "install_cmd": "/opt/bin/opkg install dropbear",
         "is_core": True
     },
     "tailscale": {
@@ -81,7 +81,7 @@ KNOWN_SERVICES = {
         "proc": "mosquitto",
         "package": "mosquitto-ssl",
         "git": "https://github.com/eclipse-mosquitto/mosquitto",
-        "install_cmd": "opkg install mosquitto-ssl",
+        "install_cmd": "/opt/bin/opkg install mosquitto-ssl",
         "uninstall_pkg": "mosquitto-ssl",
         "is_core": False
     },
@@ -92,7 +92,7 @@ KNOWN_SERVICES = {
         "proc": "lighttpd",
         "package": "lighttpd",
         "git": "https://github.com/lighttpd/lighttpd1.4",
-        "install_cmd": "opkg install lighttpd",
+        "install_cmd": "/opt/bin/opkg install lighttpd",
         "uninstall_pkg": "lighttpd",
         "is_core": False
     },
@@ -103,7 +103,7 @@ KNOWN_SERVICES = {
         "proc": "3proxy",
         "package": "3proxy",
         "git": "https://github.com/3proxy/3proxy",
-        "install_cmd": "opkg install 3proxy",
+        "install_cmd": "/opt/bin/opkg install 3proxy",
         "uninstall_pkg": "3proxy",
         "is_core": False
     },
@@ -130,10 +130,10 @@ KNOWN_SERVICES = {
         "desc": "DNS-сервер для блокировки рекламы и трекеров",
         "script_prefixes": ["S99adguardhome", "S90adguardhome"],
         "proc": "AdGuardHome",
-        "package": "adguardhome",
+        "package": "adguardhome-go",
         "git": "https://github.com/AdguardTeam/AdGuardHome",
-        "install_cmd": "opkg install adguardhome",
-        "uninstall_pkg": "adguardhome",
+        "install_cmd": "/opt/bin/opkg install adguardhome-go",
+        "uninstall_pkg": "adguardhome-go",
         "is_core": False
     },
     "transmission": {
@@ -141,10 +141,10 @@ KNOWN_SERVICES = {
         "desc": "Торрент-клиент с веб-интерфейсом",
         "script_prefixes": ["S88transmission", "S90transmission"],
         "proc": "transmission-daemon",
-        "package": "transmission-daemon-openssl",
+        "package": "transmission-daemon",
         "git": "https://github.com/transmission/transmission",
-        "install_cmd": "opkg install transmission-daemon-openssl",
-        "uninstall_pkg": "transmission-daemon-openssl",
+        "install_cmd": "/opt/bin/opkg install transmission-daemon transmission-web",
+        "uninstall_pkg": "transmission-daemon transmission-web",
         "is_core": False
     },
     "stubby": {
@@ -154,7 +154,7 @@ KNOWN_SERVICES = {
         "proc": "stubby",
         "package": "stubby",
         "git": "https://github.com/getdnsapi/stubby",
-        "install_cmd": "opkg install stubby",
+        "install_cmd": "/opt/bin/opkg install stubby",
         "uninstall_pkg": "stubby",
         "is_core": False
     },
@@ -165,7 +165,7 @@ KNOWN_SERVICES = {
         "proc": "iperf3",
         "package": "iperf3",
         "git": "https://github.com/esnet/iperf",
-        "install_cmd": "opkg install iperf3",
+        "install_cmd": "/opt/bin/opkg install iperf3",
         "uninstall_pkg": "iperf3",
         "is_core": False
     }
@@ -613,7 +613,8 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
                 output_lines.append(f"Служба {service} остановлена.")
                 
             if uninstall_pkg:
-                res = subprocess.run(["/opt/bin/opkg", "remove", uninstall_pkg], capture_output=True, text=True, timeout=60)
+                cmd = ["/opt/bin/opkg", "remove"] + uninstall_pkg.split()
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 output_lines.append(res.stdout + res.stderr)
                 success = res.returncode == 0
             else:
@@ -714,6 +715,26 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         if cmd_strip in ["/opt/bin/opkg update", "opkg update"]:
             if os.path.exists("/opt/scripts/opkg_update.py"):
                 command = "python3 /opt/scripts/opkg_update.py"
+
+        # Check for stale opkg.lock if opkg command
+        if "opkg" in command:
+            if os.path.exists("/opt/tmp/opkg.lock"):
+                try:
+                    res_p = subprocess.run(["pgrep", "opkg"], capture_output=True)
+                    if res_p.returncode != 0:
+                        os.remove("/opt/tmp/opkg.lock")
+                except Exception:
+                    pass
+
+        # If running opkg install and package lists are missing/empty, run opkg update first
+        if "opkg install" in command:
+            lists_dir = "/opt/var/opkg-lists"
+            has_lists = os.path.exists(lists_dir) and len(os.listdir(lists_dir)) > 0
+            if not has_lists:
+                if os.path.exists("/opt/scripts/opkg_update.py"):
+                    subprocess.run(["python3", "/opt/scripts/opkg_update.py"], capture_output=True, timeout=120)
+                else:
+                    subprocess.run(["/opt/bin/opkg", "update"], capture_output=True, timeout=60)
 
         try:
             res = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)

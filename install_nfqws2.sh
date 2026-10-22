@@ -30,7 +30,7 @@ printf "${YELLOW}[2/4] Установка пакета nfqws2-keenetic чере�
 killall opkg 2>/dev/null
 rm -f /opt/tmp/opkg.lock
 opkg update >/dev/null 2>&1
-opkg install nfqws2-keenetic >/dev/null 2>&1
+opkg install nfqws2-keenetic nfqws-keenetic-web >/dev/null 2>&1
 
 if [ ! -x "/opt/usr/bin/nfqws2" ]; then
     printf "${RED}Ошибка: Не удалось установить nfqws2-keenetic через opkg.${NC}\n"
@@ -85,6 +85,10 @@ if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
         printf "\n${GREEN}==========================================================${NC}\n"
         printf "${GREEN}nfqws2 успешно установлен и запущен!${NC}\n"
         printf "${GREEN}YouTube, Instagram, Rutracker, NNM-Club и Discord активны.${NC}\n"
+        if [ -x "/opt/etc/init.d/S80lighttpd" ]; then
+            /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1
+        fi
+        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:8088/${NC}\n"
         printf "${GREEN}==========================================================${NC}\n\n"
     else
         printf "${RED}Внимание: Служба nfqws2 не запустилась, проверьте /opt/var/log/nfqws2.log${NC}\n"
