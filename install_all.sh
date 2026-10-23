@@ -28,15 +28,15 @@ REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
 # 1. Панель управления
-printf "\n${YELLOW}>>> [1/4] Установка панели управления GRouter...${NC}\n"
+printf "\n${YELLOW}>>> [1/5] Установка панели управления GRouter...${NC}\n"
 curl -sL "${REPO_RAW}/install.sh${CACHE_BUST}" | sh
 
 # 2. Обход блокировок nfqws2
-printf "\n${YELLOW}>>> [2/4] Установка nfqws2 (YouTube, Instagram, Трекеры)...${NC}\n"
+printf "\n${YELLOW}>>> [2/5] Установка nfqws2 (YouTube, Instagram, Трекеры)...${NC}\n"
 curl -sL "${REPO_RAW}/install_nfqws2.sh${CACHE_BUST}" | sh
 
 # 3. Telegram Proxy
-printf "\n${YELLOW}>>> [3/4] Установка Telegram Proxy (tg-ws-proxy)...${NC}\n"
+printf "\n${YELLOW}>>> [3/5] Установка Telegram Proxy (tg-ws-proxy)...${NC}\n"
 curl -sL "${REPO_RAW}/install_tg_proxy.sh${CACHE_BUST}" | sh
 
 # 4. Tailscale VPN
