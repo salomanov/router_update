@@ -35,7 +35,7 @@ if [ -f "$USER_LIST" ]; then
     for d in tailscale.com controlplane.tailscale.com login.tailscale.com log.tailscale.io pkgs.tailscale.com derp.tailscale.com; do
         grep -q "$d" "$USER_LIST" || echo "$d" >> "$USER_LIST"
     done
-    sort -u "$USER_LIST" -o "$USER_LIST"
+    sort -u "$USER_LIST" > "$USER_LIST.tmp" && mv "$USER_LIST.tmp" "$USER_LIST"
     [ -x "/opt/etc/init.d/S51nfqws2" ] && /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
 fi
 
