@@ -24,6 +24,7 @@ export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
 printf "${YELLOW}[1/4] Настройка репозитория nfqws2...${NC}\n"
 mkdir -p /opt/etc/opkg
 echo "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/all" > /opt/etc/opkg/nfqws2-keenetic.conf
+echo "src/gz nfqws-keenetic-web https://nfqws.github.io/nfqws-keenetic-web/all" > /opt/etc/opkg/nfqws-keenetic-web.conf
 
 # 3. Установка пакета
 printf "${YELLOW}[2/4] Установка пакета nfqws2-keenetic через OPKG...${NC}\n"
@@ -88,7 +89,7 @@ if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
         if [ -x "/opt/etc/init.d/S80lighttpd" ]; then
             /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1
         fi
-        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:8088/${NC}\n"
+        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:90 (или :8088)${NC}\n"
         printf "${GREEN}==========================================================${NC}\n\n"
     else
         printf "${RED}Внимание: Служба nfqws2 не запустилась, проверьте /opt/var/log/nfqws2.log${NC}\n"
