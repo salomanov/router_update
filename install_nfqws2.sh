@@ -86,20 +86,32 @@ if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
         printf "\n${GREEN}==========================================================${NC}\n"
         printf "${GREEN}nfqws2 успешно установлен и запущен!${NC}\n"
         printf "${GREEN}YouTube, Instagram, Rutracker, NNM-Club и Discord активны.${NC}\n"
-        # Настройка веб-сервера lighttpd строго на порт 90 (без лишнего 8088)
+        # Официальная конфигурация nfqws-keenetic-web для lighttpd (порт 90)
         if [ -f "/opt/etc/lighttpd/conf.d/80-nfqws.conf" ]; then
             rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null
             cat << 'EOFLIGHTY' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
-server.port = 90
+server.port := 8088
 server.username := ""
 server.groupname := ""
 
-cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
-static-file.exclude-extensions += (".php")
-setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
-server.error-handler-404 = "/nfqws/index.html"
-url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
+$HTTP["host"] =~ "^(.+):8088$" {
+    url.redirect = ( "^/nfqws/" => "http://%1:90" )
+    url.redirect-code = 301
+}
+
+$SERVER["socket"] == ":90" {
+    cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
+    static-file.exclude-extensions += (".php")
+    setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
+    index-file.names = ( "index.html" )
+    server.error-handler-404 = "/nfqws/index.html"
+    url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
+}
 EOFLIGHTY
+        fi
+        sed -i "s/header('Location: index.html');/header('Location: \\/');/" /opt/share/www/nfqws/index.php 2>/dev/null
+        if [ -f "/opt/share/www/nfqws/index.html" ] && ! grep -q "history.replaceState" /opt/share/www/nfqws/index.html; then
+            sed -i "s#<head>#<head><script>if(location.pathname.endsWith('/index.html')){history.replaceState(null,'',location.pathname.slice(0,-10)||'/')}</script>#" /opt/share/www/nfqws/index.html
         fi
         if [ -x "/opt/etc/init.d/S80lighttpd" ]; then
             /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1
