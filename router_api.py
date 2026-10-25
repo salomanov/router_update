@@ -125,6 +125,14 @@ KNOWN_SERVICES = {
         "package": None,
         "is_core": False
     },
+    "opds": {
+        "name": "NanoOPDS Library",
+        "desc": "Сверхлегкий OPDS-сервер для читалок (FBReader, Moon+, PocketBook)",
+        "script_prefixes": ["S95opds"],
+        "proc": "nanoopds",
+        "package": None,
+        "is_core": False
+    },
     "adguardhome": {
         "name": "AdGuard Home",
         "desc": "DNS-сервер для блокировки рекламы и трекеров",
