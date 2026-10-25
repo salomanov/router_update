@@ -86,10 +86,25 @@ if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
         printf "\n${GREEN}==========================================================${NC}\n"
         printf "${GREEN}nfqws2 успешно установлен и запущен!${NC}\n"
         printf "${GREEN}YouTube, Instagram, Rutracker, NNM-Club и Discord активны.${NC}\n"
+        # Настройка веб-сервера lighttpd строго на порт 90 (без лишнего 8088)
+        if [ -f "/opt/etc/lighttpd/conf.d/80-nfqws.conf" ]; then
+            rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null
+            cat << 'EOFLIGHTY' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
+server.port = 90
+server.username := ""
+server.groupname := ""
+
+cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
+static-file.exclude-extensions += (".php")
+setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
+server.error-handler-404 = "/nfqws/index.html"
+url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
+EOFLIGHTY
+        fi
         if [ -x "/opt/etc/init.d/S80lighttpd" ]; then
             /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1
         fi
-        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:90 (или :8088)${NC}\n"
+        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:90/${NC}\n"
         printf "${GREEN}==========================================================${NC}\n\n"
     else
         printf "${RED}Внимание: Служба nfqws2 не запустилась, проверьте /opt/var/log/nfqws2.log${NC}\n"

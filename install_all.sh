@@ -51,7 +51,7 @@ printf "\n${GREEN}==========================================================${NC
 printf "${GREEN}      ВСЕ КОМПОНЕНТЫ УСПЕШНО УСТАНОВЛЕНЫ И ЗАПУЩЕНЫ!      ${NC}\n"
 printf "${GREEN}==========================================================${NC}\n\n"
 printf "👉 Веб-панель управления GRouter: http://192.168.1.1:8089/\n"
-printf "👉 Веб-интерфейс nfqws: http://192.168.1.1:90 (http://192.168.1.1:8088/)\n"
+printf "👉 Веб-интерфейс nfqws: http://192.168.1.1:90/\n"
 printf "👉 YouTube 4K, Instagram и трекеры: активны через nfqws2\n"
 printf "👉 Прокси Telegram: активен на порту 1443\n"
 printf "👉 DNS: защищен через DoT/DoH (dns.malw.link, dns.geohide.ru, dns.dns-ai.ru)\n"
