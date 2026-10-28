@@ -2,13 +2,15 @@
 
 # ==================================================
 # GRouter Control Panel Auto-Installer for Entware
+# Authenticated, secure management API and web dashboard
 # ==================================================
 
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}Начинаю установку GRouter Control Panel...${NC}\n"
+printf "${GREEN}Запуск установки GRouter Control Center...${NC}\n"
 
 # 0. Проверка среды Entware
 if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
@@ -16,103 +18,84 @@ if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
     exit 1
 fi
 
-# 1. Предварительная остановка старой версии сервиса (если запущен)
+# 1. Остановка старой службы (если работает)
 API_PIDFILE="/opt/var/run/router-api.pid"
 INIT_SCRIPT="/opt/etc/init.d/S90router-api"
 
 if [ -f "$API_PIDFILE" ]; then
     OLD_PID=$(cat "$API_PIDFILE" 2>/dev/null)
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-        printf "Обнаружен запущенный сервис Router API (PID %s). Останавливаю...\n" "$OLD_PID"
+        printf "Обнаружен работающий экземпляр Router API (PID %s). Перезапускаем...\n" "$OLD_PID"
         if [ -x "$INIT_SCRIPT" ]; then
             "$INIT_SCRIPT" stop > /dev/null 2>&1
         else
             kill "$OLD_PID" 2>/dev/null
         fi
-        sleep 2
-        if kill -0 "$OLD_PID" 2>/dev/null; then
-            kill -9 "$OLD_PID" 2>/dev/null
-        fi
+        sleep 1
+        kill -9 "$OLD_PID" 2>/dev/null || true
         rm -f "$API_PIDFILE"
-        printf "Старая версия остановлена.\n"
     else
         rm -f "$API_PIDFILE"
     fi
 fi
 
-# 2. Проверка и установка системных зависимостей
+# 2. Установка зависимостей
 DEPS="python3-light python3-email python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
-NEED_UPDATE=0
-
 printf "Проверка зависимостей...\n"
-for pkg in $DEPS; do
-    if ! opkg list-installed | grep -q "^${pkg} -"; then
-        printf "Пакет %s не найден. Требуется установка.\n" "$pkg"
-        NEED_UPDATE=1
-    fi
-done
+opkg update > /dev/null 2>&1
+opkg install $DEPS > /dev/null 2>&1
 
-if [ "$NEED_UPDATE" -eq 1 ]; then
-    printf "Обновление списков пакетов OPKG...\n"
-    opkg update > /dev/null
-    printf "Установка недостающих пакетов...\n"
-    opkg install $DEPS > /dev/null
-    if [ $? -ne 0 ]; then
-        printf "${RED}Ошибка при установке системных пакетов.${NC}\n"
-        exit 1
-    fi
-    printf "Зависимости установлены.\n"
-    if [ -x "/opt/bin/wget" ]; then
-        ln -sf /opt/bin/wget /opt/usr/bin/wget 2>/dev/null || true
-    fi
-fi
+# Установка ttyd для полнофункционального веб-терминала PuTTY
+printf "Установка Web-терминала ttyd (PuTTY в браузере)...\n"
+opkg install --force-overwrite ttyd > /dev/null 2>&1 || true
 
-# 3. Создание папок
-printf "Создание каталогов...\n"
-mkdir -p /opt/scripts
-mkdir -p /opt/etc/init.d
-mkdir -p /opt/share/router-control-center
+# 3. Подготовка директорий
+mkdir -p /opt/scripts /opt/etc/init.d /opt/share/router-control-center /opt/share/www /opt/var/run /opt/var/log
 
-# 4. Загрузка исходных файлов с репозитория GitHub
+# 4. Скачивание актуальных файлов с GitHub
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
-printf "Загрузка бэкенда, вспомогательных скриптов и init-файлов...\n"
-curl -sL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}"
-if [ $? -ne 0 ]; then
-    printf "${RED}Ошибка при скачивании бэкенда.${NC}\n"
-    exit 1
-fi
+printf "Скачивание бэкенда API и автозапуска...\n"
+curl -fsSL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}" || { printf "${RED}Ошибка скачивания router_api.py${NC}\n"; exit 1; }
+curl -fsSL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}" 2>/dev/null || true
+curl -fsSL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api${CACHE_BUST}" || { printf "${RED}Ошибка скачивания S90router-api${NC}\n"; exit 1; }
 
-curl -sL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}"
-if [ $? -ne 0 ]; then
-    printf "${RED}Внимание: не удалось скачать opkg_update.py.${NC}\n"
-fi
+printf "Скачивание веб-интерфейса GRouter...\n"
+curl -fsSL -o /opt/share/router-control-center/index.html "${REPO_RAW}/index.html${CACHE_BUST}" || { printf "${RED}Ошибка скачивания index.html${NC}\n"; exit 1; }
+curl -fsSL -o /opt/share/router-control-center/style.css "${REPO_RAW}/style.css${CACHE_BUST}" || { printf "${RED}Ошибка скачивания style.css${NC}\n"; exit 1; }
+curl -fsSL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js${CACHE_BUST}" || { printf "${RED}Ошибка скачивания app.js${NC}\n"; exit 1; }
 
-curl -sL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api${CACHE_BUST}"
-if [ $? -ne 0 ]; then
-    printf "${RED}Ошибка при скачивании init-скрипта.${NC}\n"
-    exit 1
-fi
+# Копируем веб-ассеты также в /opt/share/www для доступности через встроенный сервер
+cp -f /opt/share/router-control-center/* /opt/share/www/ 2>/dev/null || true
 
-printf "Загрузка статических веб-файлов...\n"
-curl -sL -o /opt/share/router-control-center/index.html "${REPO_RAW}/index.html${CACHE_BUST}"
-curl -sL -o /opt/share/router-control-center/style.css "${REPO_RAW}/style.css${CACHE_BUST}"
-curl -sL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js${CACHE_BUST}"
-if [ $? -ne 0 ]; then
-    printf "${RED}Ошибка при скачивании статических веб-файлов.${NC}\n"
-    exit 1
-fi
+# 5. Настройка службы ttyd (PuTTY веб-терминал с паролем admin:Salomanov)
+cat << 'EOFTTYD' > /opt/etc/init.d/S96ttyd
+#!/bin/sh
 
-# 5. Права на запуск
+ENABLED=yes
+PROCS=ttyd
+ARGS="-W -p 7681 -c admin:Salomanov -t fontSize=14 /bin/sh"
+PREARGS=""
+DESC="Web Terminal (ttyd)"
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+. /opt/etc/init.d/rc.func
+EOFTTYD
+chmod +x /opt/etc/init.d/S96ttyd
+
+# 6. Права и запуск
 chmod 755 /opt/scripts/router_api.py
 chmod 755 /opt/scripts/opkg_update.py 2>/dev/null || true
 chmod 755 /opt/etc/init.d/S90router-api
 
-# 6. Запуск
-printf "Запуск Router API...\n"
-/opt/etc/init.d/S90router-api start
+printf "Запуск служб...\n"
+/opt/etc/init.d/S96ttyd restart > /dev/null 2>&1 || true
+/opt/etc/init.d/S90router-api restart
 
-printf "${GREEN}Установка успешно завершена!${NC}\n"
-printf "Панель управления доступна по локальному адресу:\n"
-printf "👉 ${GREEN}http://192.168.1.1:8089/${NC}\n"
+printf "\n${GREEN}==========================================================${NC}\n"
+printf "${GREEN}Установка GRouter успешно завершена!${NC}\n"
+printf "Панель управления: ${GREEN}http://192.168.1.1:8089/${NC}\n"
+printf "Веб-терминал PuTTY: ${GREEN}http://192.168.1.1:7681/${NC}\n"
+printf "Авторизация: ${YELLOW}admin${NC} / ${YELLOW}Salomanov${NC}\n"
+printf "${GREEN}==========================================================${NC}\n\n"

@@ -8,3 +8,10 @@ graphify-out/
 
 
 .backups/
+
+result.json
+ChatExport*/
+*.auth
+*.sessions
+*.token
+*.tmp

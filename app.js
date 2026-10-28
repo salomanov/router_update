@@ -1,3 +1,4 @@
+// GRouter Control Center - Modernized Frontend
 // State Management
 let routerHost = "http://192.168.1.1:8089";
 let isConnected = false;
@@ -12,8 +13,13 @@ let lastVersionsData = null;
 let lastOpkgVersionsData = null;
 let isUpstreamFetching = false;
 
+// Command History State
+let commandHistory = [];
+let historyIndex = -1;
+
 // Service Meta Information
 const SERVICE_METADATA = {
+    "ttyd": { name: "Web Terminal (ttyd / PuTTY)", desc: "Полноценный веб-терминал SSH/PuTTY в браузере", git: "https://github.com/tsl0922/ttyd" },
     "dropbear": { name: "SSH (Dropbear)", desc: "Сервер удаленного доступа SSH", git: "https://github.com/mkj/dropbear" },
     "nfqws2": { name: "nfqws2 (zapret)", desc: "Обход систем фильтрации DPI / zapret", git: "https://github.com/bol-van/zapret" },
     "tg-ws-proxy": { name: "tg-ws-proxy", desc: "Прокси Telegram MTProto WebSockets (Go)", git: "https://github.com/spatiumstas/tg-ws-proxy-go" },
@@ -23,10 +29,11 @@ const SERVICE_METADATA = {
     "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" },
     "tailscale": { name: "Tailscale VPN", desc: "Mesh VPN / Exit Node для удаленного доступа", git: "https://github.com/tailscale/tailscale" },
     "3proxy": { name: "3proxy", desc: "Универсальный HTTPS/SOCKS5 прокси-сервер", git: "https://github.com/3proxy/3proxy" },
-    "adguardhome": { name: "AdGuard Home", desc: "Блокировщик рекламы и приватный DNS-сервер", git: "https://github.com/AdguardTeam/AdGuardHome" },
+    "adguardhome": { name: "AdGuard Home", desc: "DNS-сервер блокировки рекламы и трекеров", git: "https://github.com/AdguardTeam/AdGuardHome" },
     "transmission": { name: "Transmission", desc: "Торрент-клиент с веб-интерфейсом", git: "https://github.com/transmission/transmission" },
-    "stubby": { name: "Stubby DNS", desc: "DNS-over-TLS резолвер", git: "https://github.com/dnsprivacy/stubby" },
-    "iperf3": { name: "iPerf3", desc: "Утилита тестирования скорости сети", git: "https://github.com/esnet/iperf" }
+    "stubby": { name: "Stubby DNS", desc: "Шифрование DNS-over-TLS (DoT)", git: "https://github.com/dnsprivacy/stubby" },
+    "iperf3": { name: "iPerf3", desc: "Тестирование пропускной способности сети", git: "https://github.com/esnet/iperf" },
+    "opds": { name: "NanoOPDS Library", desc: "Сверхлегкий OPDS-сервер электронных книг" }
 };
 
 // Upstream GitHub Releases Cache
@@ -45,955 +52,833 @@ const servicesTbody = document.getElementById("services-tbody");
 const consoleOutput = document.getElementById("console-output");
 const btnClearConsole = document.getElementById("btn-clear-console");
 
+// Auth Elements
+const authHeaderSection = document.getElementById("auth-header-section");
+const currentUserName = document.getElementById("current-user-name");
+const btnLogout = document.getElementById("btn-logout");
+const loginModal = document.getElementById("login-modal");
+const loginForm = document.getElementById("login-form");
+const loginUsernameInput = document.getElementById("login-username");
+const loginPasswordInput = document.getElementById("login-password");
+const loginErrorMsg = document.getElementById("login-error-msg");
+
 // Tab Navigation Elements
 const tabBtnInstalled = document.getElementById("tab-btn-installed");
 const tabBtnCatalog = document.getElementById("tab-btn-catalog");
+const tabBtnTerminal = document.getElementById("tab-btn-terminal");
 const tabInstalledView = document.getElementById("tab-installed-view");
 const tabCatalogView = document.getElementById("tab-catalog-view");
+const tabTerminalView = document.getElementById("tab-terminal-view");
 const installedCount = document.getElementById("installed-count");
 const catalogCount = document.getElementById("catalog-count");
 const catalogTbody = document.getElementById("catalog-tbody");
+
+// Terminal Elements
+const terminalIframe = document.getElementById("terminal-iframe");
+const btnRestartTtyd = document.getElementById("btn-restart-ttyd");
+const btnFullscreenTerminal = document.getElementById("btn-fullscreen-terminal");
+const ttydStatusBadge = document.getElementById("ttyd-status-badge");
 
 // Command Executor Elements
 const cmdInput = document.getElementById("cmd-input");
 const btnRunCmd = document.getElementById("btn-run-cmd");
 
-// Modal Elements
+// Modals
 const helpModal = document.getElementById("help-modal");
 const btnCloseModal = document.getElementById("btn-close-modal");
 const btnModalOk = document.getElementById("btn-modal-ok");
-
-// Confirm Modal Elements
 const confirmModal = document.getElementById("confirm-modal");
-const btnCloseConfirm = document.getElementById("btn-close-confirm");
-const btnConfirmCancel = document.getElementById("btn-confirm-cancel");
+const btnCloseConfirm = document.getElementById("btn-confirm-close");
+const btnConfirmCancel = document.getElementById("btn-confirm-no");
 const btnConfirmYes = document.getElementById("btn-confirm-yes");
 
-// Init
-window.addEventListener("DOMContentLoaded", () => {
-    const isLocalServer = !window.location.origin.startsWith("file://") && !window.location.origin.includes("github.io");
-    
-    if (isLocalServer) {
-        routerHost = window.location.origin;
-        hostInput.value = routerHost;
+// --- Token & Authentication Helpers ---
+
+function getToken() {
+    return localStorage.getItem("grouter_token") || "";
+}
+
+function setToken(token) {
+    if (token) {
+        localStorage.setItem("grouter_token", token);
     } else {
-        const savedHost = localStorage.getItem("router_host");
-        if (savedHost) {
-            routerHost = savedHost;
-            hostInput.value = savedHost;
-        }
-    }
-    
-    // Bind Event Listeners
-    btnConnect.addEventListener("click", handleConnect);
-    btnRefresh.addEventListener("click", () => fetchRouterStatus(true));
-    btnOpkgUpdate.addEventListener("click", runOpkgUpdate);
-    btnClearConsole.addEventListener("click", clearConsole);
-
-    // Tab Navigation
-    if (tabBtnInstalled && tabBtnCatalog) {
-        tabBtnInstalled.addEventListener("click", () => switchTab("installed"));
-        tabBtnCatalog.addEventListener("click", () => switchTab("catalog"));
-    }
-    
-    // Manual Command Executor
-    btnRunCmd.addEventListener("click", runManualCommand);
-    cmdInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            runManualCommand();
-        }
-    });
-    
-    // Modal events
-    btnCloseModal.addEventListener("click", toggleModal);
-    btnModalOk.addEventListener("click", toggleModal);
-    
-    // Confirm Modal events
-    btnCloseConfirm.addEventListener("click", handleConfirmCancel);
-    btnConfirmCancel.addEventListener("click", handleConfirmCancel);
-    btnConfirmYes.addEventListener("click", handleConfirmYes);
-    
-    // Always trigger background upstream GitHub releases fetch
-    fetchUpstreamVersions();
-
-    // Auto-connect if hosted directly on the router API
-    if (isLocalServer) {
-        handleConnect();
-    }
-});
-
-// Tab Switch Helper
-function switchTab(tab) {
-    if (tab === "installed") {
-        if (tabBtnInstalled) tabBtnInstalled.classList.add("active");
-        if (tabBtnCatalog) tabBtnCatalog.classList.remove("active");
-        if (tabInstalledView) tabInstalledView.style.display = "block";
-        if (tabCatalogView) tabCatalogView.style.display = "none";
-    } else {
-        if (tabBtnCatalog) tabBtnCatalog.classList.add("active");
-        if (tabBtnInstalled) tabBtnInstalled.classList.remove("active");
-        if (tabCatalogView) tabCatalogView.style.display = "block";
-        if (tabInstalledView) tabInstalledView.style.display = "none";
+        localStorage.removeItem("grouter_token");
     }
 }
 
-// Logs helper
-function logToConsole(source, text, type = "output") {
+function showLoginModal(errorText = "") {
+    if (loginModal) {
+        loginModal.classList.add("active");
+        if (loginErrorMsg) {
+            if (errorText) {
+                loginErrorMsg.textContent = errorText;
+                loginErrorMsg.style.display = "block";
+            } else {
+                loginErrorMsg.style.display = "none";
+            }
+        }
+        if (loginPasswordInput) {
+            loginPasswordInput.value = "";
+            loginPasswordInput.focus();
+        }
+    }
+}
+
+function hideLoginModal() {
+    if (loginModal) {
+        loginModal.classList.remove("active");
+    }
+}
+
+async function apiRequest(endpoint, options = {}) {
+    const url = endpoint.startsWith("http") ? endpoint : `${routerHost}${endpoint}`;
+    options.headers = options.headers || {};
+    
+    const token = getToken();
+    if (token) {
+        options.headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (options.body && typeof options.body === "string" && !options.headers["Content-Type"]) {
+        options.headers["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(url, options);
+
+    if (response.status === 401) {
+        setToken("");
+        updateAuthUI(false);
+        showLoginModal("Требуется авторизация (admin:Salomanov)");
+        throw new Error("Unauthorized (401)");
+    }
+
+    return response;
+}
+
+function updateAuthUI(isLoggedIn, username = "admin") {
+    if (authHeaderSection) {
+        authHeaderSection.style.display = isLoggedIn ? "flex" : "none";
+        if (currentUserName) currentUserName.textContent = username;
+    }
+}
+
+async function submitLogin(username, password) {
+    try {
+        logToConsole(`Попытка авторизации пользователя '${username}'...`);
+        const resp = await fetch(`${routerHost}/api/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await resp.json();
+        if (resp.ok && data.success && data.token) {
+            setToken(data.token);
+            hideLoginModal();
+            updateAuthUI(true, data.username || username);
+            logToConsole(`Успешная авторизация (${username})!`, "success");
+            setConnectionState("online");
+            startAutoRefresh();
+            fetchRouterStatus(true);
+            return true;
+        } else {
+            const err = data.error || "Неверный логин или пароль";
+            showLoginModal(err);
+            logToConsole(`Ошибка авторизации: ${err}`, "error");
+            return false;
+        }
+    } catch (e) {
+        showLoginModal(`Сетевая ошибка: ${e.message}`);
+        logToConsole(`Сбой подключения при авторизации: ${e.message}`, "error");
+        return false;
+    }
+}
+
+function handleLogout() {
+    logToConsole("Выход из системы...");
+    apiRequest("/api/logout", { method: "POST", body: "{}" }).catch(() => {});
+    setToken("");
+    updateAuthUI(false);
+    setConnectionState("offline");
+    stopAutoRefresh();
+    showLoginModal();
+}
+
+// --- Tab Navigation ---
+
+function switchTab(targetTab) {
+    if (tabBtnInstalled) tabBtnInstalled.classList.remove("active");
+    if (tabBtnCatalog) tabBtnCatalog.classList.remove("active");
+    if (tabBtnTerminal) tabBtnTerminal.classList.remove("active");
+
+    if (tabInstalledView) tabInstalledView.style.display = "none";
+    if (tabCatalogView) tabCatalogView.style.display = "none";
+    if (tabTerminalView) tabTerminalView.style.display = "none";
+
+    if (targetTab === "installed") {
+        if (tabBtnInstalled) tabBtnInstalled.classList.add("active");
+        if (tabInstalledView) tabInstalledView.style.display = "block";
+    } else if (targetTab === "catalog") {
+        if (tabBtnCatalog) tabBtnCatalog.classList.add("active");
+        if (tabCatalogView) tabCatalogView.style.display = "block";
+    } else if (targetTab === "terminal") {
+        if (tabBtnTerminal) tabBtnTerminal.classList.add("active");
+        if (tabTerminalView) tabTerminalView.style.display = "block";
+        initTerminalView();
+    }
+}
+
+function initTerminalView() {
+    let host = "192.168.1.1";
+    try {
+        const u = new URL(routerHost);
+        host = u.hostname;
+    } catch (e) {}
+
+    const terminalUrl = `http://${host}:7681/`;
+    if (btnFullscreenTerminal) {
+        btnFullscreenTerminal.href = terminalUrl;
+    }
+    if (terminalIframe && (!terminalIframe.src || terminalIframe.src === "about:blank")) {
+        terminalIframe.src = terminalUrl;
+    }
+}
+
+// --- Console Logger with Memory Bounds (Max 100 lines) ---
+
+function logToConsole(message, type = "info") {
+    if (!consoleOutput) return;
     const line = document.createElement("div");
     line.className = `console-line ${type}`;
-    
-    const time = new Date().toLocaleTimeString();
-    line.textContent = `[${time}] [${source}] ${text}`;
-    
+    const timestamp = new Date().toLocaleTimeString();
+    line.textContent = `[${timestamp}] ${message}`;
     consoleOutput.appendChild(line);
+    
+    // Cap at 100 lines to avoid DOM memory leaks
+    while (consoleOutput.children.length > 100) {
+        consoleOutput.removeChild(consoleOutput.firstChild);
+    }
     consoleOutput.scrollTop = consoleOutput.scrollHeight;
 }
 
 function clearConsole() {
-    consoleOutput.innerHTML = '<div class="console-line system">[Система] Консоль очищена.</div>';
-}
-
-function toggleModal() {
-    helpModal.classList.toggle("active");
-}
-
-// Check if current site is HTTPS and target host is HTTP (triggers Mixed Content warning)
-function isMixedContentConflict(url) {
-    const isHttpsPage = window.location.protocol === "https:";
-    const isHttpTarget = url.startsWith("http://");
-    return isHttpsPage && isHttpTarget;
-}
-
-// Connect Action
-async function handleConnect() {
-    let host = hostInput.value.trim();
-    if (!host) return;
-    
-    // Auto-fix slash at the end
-    if (host.endsWith("/")) {
-        host = host.slice(0, -1);
+    if (consoleOutput) {
+        consoleOutput.innerHTML = "";
+        logToConsole("Консоль очищена.");
     }
-    
-    routerHost = host;
-    localStorage.setItem("router_host", routerHost);
-    
-    logToConsole("Система", `Подключение к ${routerHost}...`, "system");
-    
+}
+
+function toggleModal(modal, show) {
+    if (modal) {
+        if (show) modal.classList.add("active");
+        else modal.classList.remove("active");
+    }
+}
+
+// --- Connection Handling ---
+
+async function handleConnect() {
+    if (btnConnect) btnConnect.disabled = true;
+    routerHost = hostInput ? hostInput.value.trim().replace(/\/+$/, "") : routerHost;
+    localStorage.setItem("grouter_host", routerHost);
+
     setConnectionState("loading");
-    
-    await fetchRouterStatus(false);
+    logToConsole(`Подключение к ${routerHost}...`);
+
+    try {
+        // If we don't have a token, prompt for login first
+        if (!getToken()) {
+            showLoginModal();
+            setConnectionState("offline");
+            if (btnConnect) btnConnect.disabled = false;
+            return;
+        }
+
+        const authResp = await apiRequest("/api/auth/check");
+        if (authResp.ok) {
+            updateAuthUI(true, "admin");
+            setConnectionState("online");
+            startAutoRefresh();
+            fetchRouterStatus(true);
+            logToConsole("Успешно подключено к роутеру!", "success");
+        }
+    } catch (e) {
+        if (e.message && e.message.includes("401")) {
+            // Already handled in apiRequest
+        } else {
+            setConnectionState("offline");
+            logToConsole(`Не удалось подключиться: ${e.message}`, "error");
+            if (window.location.protocol === "https:" && routerHost.startsWith("http:")) {
+                toggleModal(helpModal, true);
+            }
+        }
+    } finally {
+        if (btnConnect) btnConnect.disabled = false;
+    }
 }
 
 function setConnectionState(state) {
+    if (!connectionStatus) return;
     connectionStatus.className = `status-indicator ${state}`;
-    const dot = connectionStatus.querySelector(".dot");
-    const statusText = connectionStatus.querySelector(".status-text");
-    
+    const textEl = connectionStatus.querySelector(".status-text");
     if (state === "online") {
         isConnected = true;
-        statusText.textContent = "В сети";
-        btnConnect.innerHTML = '<i class="fa-solid fa-link-slash"></i> Отключить';
-        btnConnect.className = "btn btn-secondary";
-        
-        // Start auto-refresh
-        if (!refreshIntervalId) {
-            refreshIntervalId = setInterval(() => {
-                if (!isRefreshPaused) {
-                    fetchRouterStatus(true);
-                }
-            }, REFRESH_RATE_MS);
+        if (textEl) textEl.textContent = "В сети";
+        if (btnConnect) {
+            btnConnect.innerHTML = `<i class="fa-solid fa-plug-circle-check"></i> Подключено`;
+            btnConnect.disabled = false;
         }
     } else if (state === "loading") {
-        statusText.textContent = "Подключение...";
-        btnConnect.disabled = true;
+        if (textEl) textEl.textContent = "Подключение...";
     } else {
         isConnected = false;
-        statusText.textContent = "Не подключен";
-        btnConnect.innerHTML = '<i class="fa-solid fa-plug"></i> Подключить';
-        btnConnect.className = "btn btn-primary";
-        btnConnect.disabled = false;
-        
-        // Stop auto-refresh
-        if (refreshIntervalId) {
-            clearInterval(refreshIntervalId);
-            refreshIntervalId = null;
+        if (textEl) textEl.textContent = "Не подключено";
+        if (btnConnect) {
+            btnConnect.innerHTML = `<i class="fa-solid fa-plug"></i> Подключиться`;
+            btnConnect.disabled = false;
         }
     }
 }
 
-// Fetch Status from Router
-async function fetchRouterStatus(isRefresh = false) {
-    try {
-        const response = await fetch(`${routerHost}/api/status`, {
-            method: "GET",
-            headers: {
-                "Accept": "application/json"
-            },
-            mode: "cors"
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
+function startAutoRefresh() {
+    stopAutoRefresh();
+    refreshIntervalId = setInterval(() => {
+        if (!isRefreshPaused && isConnected) {
+            fetchRouterStatus(false);
         }
-        
-        const data = await response.json();
-        
-        if (!isConnected) {
-            logToConsole("Система", "Успешно подключено к роутеру!", "success");
-        }
-        setConnectionState("online");
-        
-        lastServicesData = data.services_detailed || convertLegacyServices(data.services, data.versions);
-        lastCatalogData = data.catalog || {};
-        lastVersionsData = data.versions;
-        lastOpkgVersionsData = data.opkg_versions;
+    }, REFRESH_RATE_MS);
+}
 
-        renderSystemStats(data.system);
-        renderServicesTable(lastServicesData, data.opkg_versions);
-        renderCatalogTable(lastCatalogData, data.opkg_versions);
-
-        if (!isUpstreamFetching) {
-            fetchUpstreamVersions();
-        }
-        
-    } catch (err) {
-        console.error(err);
-        
-        if (isRefresh) {
-            logToConsole("Система", `Ошибка автообновления: ${err.message}`, "error");
-        } else {
-            logToConsole("Система", `Не удалось подключиться к роутеру. ${err.message}`, "error");
-            setConnectionState("offline");
-            
-            // Check if this looks like a Mixed Content blocking issue
-            if (isMixedContentConflict(routerHost)) {
-                logToConsole("Безопасность", "Запрос был заблокирован браузером из-за Mixed Content (HTTPS -> HTTP).", "error");
-                toggleModal(); // Show instructional modal
-            } else {
-                logToConsole("Подсказка", "Проверьте, запущен ли API-сервер на роутере и правильно ли указан IP-адрес / порт.", "system");
-            }
-        }
+function stopAutoRefresh() {
+    if (refreshIntervalId) {
+        clearInterval(refreshIntervalId);
+        refreshIntervalId = null;
     }
 }
 
-// Render System Stats
-function renderSystemStats(system) {
-    if (!system) return;
-    
-    // CPU
-    document.getElementById("cpu-load").textContent = system.cpu_load || "-- -- --";
-    
-    // RAM
-    const ramPct = system.mem_used_pct || 0;
-    const ramFill = document.getElementById("ram-fill");
-    ramFill.style.width = `${ramPct}%`;
-    
-    const ramTotalMb = Math.round(system.mem_total / (1024 * 1024)) || 0;
-    const ramUsedMb = Math.round((system.mem_total - system.mem_free) / (1024 * 1024)) || 0;
-    document.getElementById("ram-text").textContent = `${ramUsedMb} / ${ramTotalMb} MB`;
-    document.getElementById("ram-pct").textContent = `${ramPct}%`;
-    
-    // Disk
-    const diskPct = system.disk_used_pct || 0;
-    const diskFill = document.getElementById("disk-fill");
-    diskFill.style.width = `${diskPct}%`;
-    document.getElementById("disk-text").textContent = `${system.disk_used || '--'} / ${system.disk_total || '--'}`;
-    document.getElementById("disk-pct").textContent = `${diskPct}%`;
-}
-
-// Fetch Latest Releases from GitHub in background
-async function fetchUpstreamVersions() {
-    if (isUpstreamFetching) return;
-    isUpstreamFetching = true;
-    let hasChanges = false;
-
-    for (const key in upstreamReleases) {
-        const item = upstreamReleases[key];
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-            const res = await fetch(`https://api.github.com/repos/${item.repo}/releases/latest`, {
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            if (!res.ok) throw new Error(`GitHub API Error: ${res.status}`);
-            
-            const data = await res.json();
-            const tag = data.tag_name;
-            
-            // Find correct asset matching the platform
-            const asset = data.assets ? data.assets.find(a => a.name.toLowerCase().includes(item.keyword)) : null;
-            if (asset) {
-                item.latest = tag;
-                item.url = asset.browser_download_url;
-                item.error = null;
-            } else {
-                item.latest = tag;
-                item.url = null; // Could not find matching asset
-                item.error = "Asset not found for platform";
-            }
-            hasChanges = true;
-        } catch (e) {
-            console.error(`Failed to fetch upstream for ${key}:`, e);
-            item.error = e.name === "AbortError" ? "Таймаут запроса к GitHub API" : e.message;
-            hasChanges = true;
-        }
-    }
-    
-    isUpstreamFetching = false;
-
-    // Redraw table if router status data is loaded
-    if (hasChanges && lastServicesData) {
-        renderServicesTable(lastServicesData, lastOpkgVersionsData);
-    }
-}
-
-// Legacy services converter fallback
-function convertLegacyServices(services, versions) {
-    const res = {};
-    if (!services) return res;
-    for (const key in services) {
-        const meta = SERVICE_METADATA[key] || { name: key, desc: "" };
-        res[key] = {
-            name: meta.name,
-            desc: meta.desc,
-            git: meta.git,
-            status: services[key],
-            installed_version: versions ? versions[key] : null
-        };
-    }
-    return res;
-}
-
-// Compare versions to check if update is available
-function isUpdateAvailable(installed, latest) {
-    if (!installed || installed === "unknown" || installed === "not installed" || !latest) return false;
-    
-    // Strip leading 'v'
-    const cleanInstalled = installed.replace(/^v/i, "").split("-")[0]; // e.g. "0.7.2-1" -> "0.7.2"
-    const cleanLatest = latest.replace(/^v/i, "").split("-")[0];
-    
-    if (cleanInstalled === cleanLatest) return false;
-    
-    // Compare versions split by dots
-    const partsInst = cleanInstalled.split(".").map(v => parseInt(v, 10) || 0);
-    const partsLat = cleanLatest.split(".").map(v => parseInt(v, 10) || 0);
-    
-    for (let i = 0; i < Math.max(partsInst.length, partsLat.length); i++) {
-        const vInst = partsInst[i] || 0;
-        const vLat = partsLat[i] || 0;
-        if (vLat > vInst) return true;
-        if (vLat < vInst) return false;
-    }
-    
-    return false;
-}
-
-// Render Services list (Installed only)
-function renderServicesTable(servicesDetailed, opkgVersions) {
-    if (!servicesDetailed) return;
-    
-    servicesTbody.innerHTML = "";
-    
-    let list = [];
-    if (Array.isArray(servicesDetailed)) {
-        list = servicesDetailed;
-    } else if (typeof servicesDetailed === "object" && servicesDetailed !== null) {
-        for (const k in servicesDetailed) {
-            list.push({ id: k, ...servicesDetailed[k] });
-        }
-    }
-    
-    if (installedCount) installedCount.textContent = list.length;
-    
-    if (list.length === 0) {
-        servicesTbody.innerHTML = '<tr><td colspan="5" class="empty-state">Установленные сервисы не обнаружены</td></tr>';
-        return;
-    }
-    
-    for (const item of list) {
-        const key = item.id;
-        const meta = SERVICE_METADATA[key] || {};
-        const name = item.name || meta.name || key;
-        const desc = item.desc || meta.desc || "";
-        const git = item.git || meta.git;
-        const status = item.status || "unknown";
-        const installedVersion = (lastVersionsData && lastVersionsData[key]) || item.installed_version || "—";
-        const opkgVersion = opkgVersions ? opkgVersions[key] : null;
-        const upstream = upstreamReleases[key];
-        
-        const tr = document.createElement("tr");
-        tr.setAttribute("data-service", key);
-        
-        // Name Column (with Git icon link if configured)
-        const tdName = document.createElement("td");
-        tdName.className = "service-name";
-        
-        let gitLinkHtml = "";
-        if (git) {
-            gitLinkHtml = ` <a href="${git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
-        }
-        
-        tdName.innerHTML = `<strong>${name}${gitLinkHtml}</strong><span class="service-desc">${desc}</span>`;
-        tr.appendChild(tdName);
-        
-        // Status Badge Column
-        const tdStatus = document.createElement("td");
-        let badgeHtml = "";
-        if (status === "running") {
-            badgeHtml = `<span class="badge running"><i class="fa-solid fa-circle"></i> Запущен</span>`;
-        } else if (status === "stopped") {
-            badgeHtml = `<span class="badge stopped"><i class="fa-solid fa-circle"></i> Остановлен</span>`;
-        } else {
-            badgeHtml = `<span class="badge unknown"><i class="fa-solid fa-circle"></i> Неизвестно</span>`;
-        }
-        tdStatus.innerHTML = badgeHtml;
-        tr.appendChild(tdStatus);
-        
-        // Installed Version Column
-        const tdVersion = document.createElement("td");
-        tdVersion.className = "version-cell";
-        tdVersion.textContent = installedVersion || "—";
-        tr.appendChild(tdVersion);
-        
-        // Release Column (OPKG or GitHub)
-        const tdGitHub = document.createElement("td");
-        tdGitHub.className = "version-cell";
-        
-        const hasGithubUpdate = upstream && upstream.latest && isUpdateAvailable(installedVersion, upstream.latest) && upstream.url;
-        const hasOpkgUpdate = opkgVersion && isUpdateAvailable(installedVersion, opkgVersion);
-
-        if (hasGithubUpdate) {
-            tdGitHub.textContent = `${upstream.latest} `;
-            const badgeUpdate = document.createElement("span");
-            badgeUpdate.className = "badge-update warning";
-            badgeUpdate.title = "Нажмите, чтобы обновить через GitHub";
-            badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> GitHub`;
-            badgeUpdate.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
-            tdGitHub.appendChild(badgeUpdate);
-        } else if (hasOpkgUpdate) {
-            tdGitHub.textContent = `${opkgVersion} `;
-            const badgeUpdate = document.createElement("span");
-            badgeUpdate.className = "badge-update warning";
-            badgeUpdate.title = "Нажмите, чтобы обновить через OPKG";
-            badgeUpdate.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> OPKG`;
-            badgeUpdate.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
-            tdGitHub.appendChild(badgeUpdate);
-        } else if (upstream && upstream.latest && !hasGithubUpdate) {
-            const badgeUpToDate = document.createElement("span");
-            badgeUpToDate.className = "badge-update success";
-            badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
-            tdGitHub.textContent = `${upstream.latest} `;
-            tdGitHub.appendChild(badgeUpToDate);
-        } else if (opkgVersion && !hasOpkgUpdate) {
-            const badgeUpToDate = document.createElement("span");
-            badgeUpToDate.className = "badge-update success";
-            badgeUpToDate.innerHTML = `<i class="fa-solid fa-check"></i> Актуально`;
-            tdGitHub.textContent = `${opkgVersion} `;
-            tdGitHub.appendChild(badgeUpToDate);
-        } else if (upstream && !upstream.latest && !upstream.error && !opkgVersion) {
-            tdGitHub.innerHTML = `<span class="badge-update loading"><i class="fa-solid fa-spinner fa-spin"></i> Загрузка GitHub...</span>`;
-        } else if (upstream && upstream.error && !opkgVersion) {
-            tdGitHub.innerHTML = `<span class="text-muted" title="${upstream.error}"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка GitHub</span>`;
-        } else {
-            tdGitHub.innerHTML = `<span class="text-muted">—</span>`;
-        }
-        tr.appendChild(tdGitHub);
-        
-        // Actions Column
-        const tdActions = document.createElement("td");
-        tdActions.className = "actions-cell";
-        
-        if (status === "running") {
-            const btnStop = document.createElement("button");
-            btnStop.className = "btn-action stop";
-            btnStop.title = "Остановить";
-            btnStop.innerHTML = `<i class="fa-solid fa-stop"></i>`;
-            btnStop.onclick = () => controlService(key, 'stop');
-            
-            const btnRestart = document.createElement("button");
-            btnRestart.className = "btn-action restart";
-            btnRestart.title = "Перезапустить";
-            btnRestart.innerHTML = `<i class="fa-solid fa-arrow-rotate-right"></i>`;
-            btnRestart.onclick = () => controlService(key, 'restart');
-            
-            tdActions.appendChild(btnStop);
-            tdActions.appendChild(btnRestart);
-        } else {
-            const btnStart = document.createElement("button");
-            btnStart.className = "btn-action start";
-            btnStart.title = "Запустить";
-            btnStart.innerHTML = `<i class="fa-solid fa-play"></i>`;
-            btnStart.onclick = () => controlService(key, 'start');
-            
-            tdActions.appendChild(btnStart);
-        }
-        
-        // Uninstall button (except critical router infrastructure dropbear and lighttpd)
-        if (item.can_uninstall !== false && key !== "lighttpd" && key !== "dropbear") {
-            const btnUninstall = document.createElement("button");
-            btnUninstall.className = "btn-action uninstall";
-            btnUninstall.title = `Удалить ${name}`;
-            btnUninstall.innerHTML = `<i class="fa-solid fa-trash-can"></i>`;
-            btnUninstall.onclick = () => triggerUninstall(key, name);
-            tdActions.appendChild(btnUninstall);
-        }
-        
-        // Upgrade button
-        if (hasGithubUpdate) {
-            const updateBtn = document.createElement("button");
-            updateBtn.className = "btn-upgrade";
-            updateBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить до ${upstream.latest}`;
-            updateBtn.onclick = () => triggerUpdate(key, upstream.latest, upstream.url);
-            tdActions.appendChild(updateBtn);
-        } else if (hasOpkgUpdate) {
-            const updateBtn = document.createElement("button");
-            updateBtn.className = "btn-upgrade";
-            updateBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Обновить до ${opkgVersion}`;
-            updateBtn.onclick = () => triggerOpkgUpgrade(key, opkgVersion);
-            tdActions.appendChild(updateBtn);
-        }
-        
-        tr.appendChild(tdActions);
-        servicesTbody.appendChild(tr);
-    }
-}
-
-// Render Catalog list (Available for 1-click installation)
-function renderCatalogTable(catalog, opkgVersions) {
-    if (!catalogTbody) return;
-    
-    catalogTbody.innerHTML = "";
-    
-    let list = [];
-    if (Array.isArray(catalog)) {
-        list = catalog;
-    } else if (typeof catalog === "object" && catalog !== null) {
-        for (const k in catalog) {
-            list.push({ id: k, ...catalog[k] });
-        }
-    }
-    
-    if (catalogCount) catalogCount.textContent = list.length;
-    
-    if (list.length === 0) {
-        catalogTbody.innerHTML = '<tr><td colspan="4" class="empty-state">Все доступные приложения установлены! 🎉</td></tr>';
-        return;
-    }
-    
-    for (const item of list) {
-        const key = item.id;
-        const meta = SERVICE_METADATA[key] || {};
-        const name = item.name || meta.name || key;
-        const desc = item.desc || meta.desc || "";
-        const git = item.git || meta.git;
-        const opkgVersion = opkgVersions ? opkgVersions[key] : null;
-        
-        const tr = document.createElement("tr");
-        tr.setAttribute("data-catalog-service", key);
-        
-        // Name Column
-        const tdName = document.createElement("td");
-        tdName.className = "service-name";
-        let gitLinkHtml = "";
-        if (git) {
-            gitLinkHtml = ` <a href="${git}" target="_blank" class="git-link" title="Перейти на GitHub"><i class="fa-brands fa-github"></i></a>`;
-        }
-        tdName.innerHTML = `<strong>${name}${gitLinkHtml}</strong>`;
-        tr.appendChild(tdName);
-        
-        // Description Column
-        const tdDesc = document.createElement("td");
-        tdDesc.innerHTML = `<span class="service-desc" style="display:inline;">${desc}</span>`;
-        tr.appendChild(tdDesc);
-        
-        // Source / Version Column
-        const tdSource = document.createElement("td");
-        tdSource.className = "version-cell";
-        let sourceText = "OPKG";
-        if (opkgVersion) {
-            sourceText = `OPKG: ${opkgVersion}`;
-        } else if (item.package) {
-            sourceText = `OPKG: ${item.package}`;
-        } else if (item.custom) {
-            sourceText = "Скрипт / GitHub";
-        }
-        tdSource.textContent = sourceText;
-        tr.appendChild(tdSource);
-        
-        // Action Column (1-click Install button)
-        const tdAction = document.createElement("td");
-        tdAction.className = "actions-cell";
-        
-        const btnInstall = document.createElement("button");
-        btnInstall.className = "btn-install";
-        btnInstall.innerHTML = `<i class="fa-solid fa-download"></i> Установить`;
-        btnInstall.onclick = () => triggerCatalogInstall(key, item);
-        
-        tdAction.appendChild(btnInstall);
-        tr.appendChild(tdAction);
-        
-        catalogTbody.appendChild(tr);
-    }
-}
-
-// Control Service Actions (Start / Stop / Restart)
-async function controlService(service, action) {
-    if (!isConnected) return;
-    
-    logToConsole(service, `Запрос на ${action}...`, "cmd");
-    
-    try {
-        const response = await fetch(`${routerHost}/api/service`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ service, action }),
-            mode: "cors"
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            logToConsole(service, `Успешно: ${action}. Статус: ${result.new_status}`, "success");
-            if (result.output) {
-                logToConsole(service, result.output, "output");
-            }
-        } else {
-            logToConsole(service, `Ошибка выполнения: ${result.output || 'Неизвестная ошибка'}`, "error");
-        }
-        
-        // Immediately refresh status
-        fetchRouterStatus(true);
-        
-    } catch (e) {
-        logToConsole(service, `Сбой запроса: ${e.message}`, "error");
-    }
-}
-
-// Trigger Catalog App Install
-function triggerCatalogInstall(serviceId, item) {
-    if (!isConnected) return;
-    
-    const name = item.name || serviceId;
-    const cmd = item.install_cmd || (item.opkg_name ? `/opt/bin/opkg install ${item.opkg_name}` : `/opt/bin/opkg install ${serviceId}`);
-    
-    pendingUpdate = {
-        actionType: "catalog_install",
-        service: serviceId,
-        name: name,
-        command: cmd
-    };
-    
-    const confirmModalText = document.getElementById("confirm-modal-text");
-    confirmModalText.innerHTML = `Вы уверены, что хотите установить <strong>${name}</strong>?<br><span style="font-size: 11px; color: var(--text-muted); word-break: break-all;">Команда: ${cmd}</span>`;
-    
-    confirmModal.classList.add("active");
-    pauseAutoRefresh();
-}
-
-// Trigger Service Uninstall
-function triggerUninstall(serviceId, serviceName) {
-    if (!isConnected) return;
-    
-    pendingUpdate = {
-        actionType: "uninstall",
-        service: serviceId,
-        name: serviceName
-    };
-    
-    const confirmModalText = document.getElementById("confirm-modal-text");
-    confirmModalText.innerHTML = `Внимание! Вы уверены, что хотите полностью удалить <strong>${serviceName}</strong> с роутера?<br><span style="font-size: 12px; color: var(--accent-red);">Будет остановлен процесс и удален соответствующий пакет/скрипт.</span>`;
-    
-    confirmModal.classList.add("active");
-    pauseAutoRefresh();
-}
-
-// Trigger Service Update (GitHub)
-async function triggerUpdate(service, version, url) {
-    if (!isConnected) return;
-    
-    pendingUpdate = {
-        actionType: "github_update",
-        service,
-        version,
-        url
-    };
-    
-    // Setup modal text
-    const confirmModalText = document.getElementById("confirm-modal-text");
-    confirmModalText.innerHTML = `Вы уверены, что хотите обновить сервис <strong>${service}</strong> до версии <strong>${version}</strong> с GitHub?<br><span style="font-size: 11px; color: var(--text-muted); word-break: break-all;">${url}</span>`;
-    
-    // Show Modal
-    confirmModal.classList.add("active");
-    pauseAutoRefresh();
-}
-
-// Trigger OPKG Service Update
-async function triggerOpkgUpgrade(service, version) {
-    if (!isConnected) return;
-    
-    const opkgNameMap = {
-        "mosquitto": "mosquitto-ssl",
-        "lighttpd": "lighttpd",
-        "dropbear": "dropbear",
-        "nfqws2": "nfqws2-keenetic",
-        "tg-ws-proxy": "tg-ws-proxy",
-        "adguardhome": "adguardhome-go",
-        "transmission": "transmission-daemon",
-        "stubby": "stubby",
-        "iperf3": "iperf3"
-    };
-    
-    const packageName = opkgNameMap[service] || service;
-    
-    pendingUpdate = {
-        actionType: "opkg_update",
-        service,
-        version,
-        command: `/opt/bin/opkg install ${packageName}`
-    };
-    
-    const confirmModalText = document.getElementById("confirm-modal-text");
-    confirmModalText.innerHTML = `Вы уверены, что хотите обновить OPKG пакет <strong>${packageName}</strong> до версии <strong>${version}</strong> через официальные списки пакетов?`;
-    
-    confirmModal.classList.add("active");
-    pauseAutoRefresh();
-}
-
-// Modal Confirm Event Handlers
-function handleConfirmCancel() {
-    confirmModal.classList.remove("active");
-    pendingUpdate = null;
-    resumeAutoRefresh();
-}
-
-async function handleConfirmYes() {
-    if (!pendingUpdate) return;
-    
-    confirmModal.classList.remove("active");
-    const currentAction = pendingUpdate;
-    pendingUpdate = null;
-    
-    if (currentAction.actionType === "catalog_install") {
-        const { service, name, command } = currentAction;
-        logToConsole(name, `Запуск установки приложения...`, "cmd");
-        logToConsole(name, `Выполнение: ${command}`, "output");
-        
-        try {
-            const response = await fetch(`${routerHost}/api/exec`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ command, timeout: 240 }),
-                mode: "cors"
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            if (result.success) {
-                logToConsole(name, `Приложение успешно установлено!\n${result.output}`, "success");
-            } else {
-                logToConsole(name, `Ошибка установки (код ${result.exit_code}):\n${result.output}`, "error");
-            }
-        } catch (e) {
-            logToConsole(name, `Ошибка запроса на установку: ${e.message}`, "error");
-        } finally {
-            resumeAutoRefresh();
-            fetchRouterStatus(true);
-        }
-    } else if (currentAction.actionType === "uninstall") {
-        const { service, name } = currentAction;
-        logToConsole(name, `Запрос на удаление приложения...`, "cmd");
-        
-        try {
-            const response = await fetch(`${routerHost}/api/service`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ service, action: "uninstall" }),
-                mode: "cors"
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            if (result.success) {
-                logToConsole(name, `Успешно удалено!\n${result.output || ''}`, "success");
-            } else {
-                logToConsole(name, `Ошибка удаления:\n${result.output || ''}`, "error");
-            }
-        } catch (e) {
-            logToConsole(name, `Сбой запроса на удаление: ${e.message}`, "error");
-        } finally {
-            resumeAutoRefresh();
-            fetchRouterStatus(true);
-        }
-    } else if (currentAction.actionType === "opkg_update" || currentAction.isOpkg) {
-        const { service, version, command } = currentAction;
-        logToConsole(service, `Запуск обновления OPKG пакета до версии ${version}...`, "cmd");
-        logToConsole(service, `Выполнение команды: ${command}`, "output");
-        
-        try {
-            const response = await fetch(`${routerHost}/api/exec`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ command, timeout: 180 }),
-                mode: "cors"
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            if (result.success) {
-                logToConsole(service, `Пакет успешно обновлен!\n${result.output}`, "success");
-            } else {
-                logToConsole(service, `Сбой обновления (код ${result.exit_code}):\n${result.output}`, "error");
-            }
-        } catch (e) {
-            logToConsole(service, `Ошибка запроса на обновление: ${e.message}`, "error");
-        } finally {
-            resumeAutoRefresh();
-            fetchRouterStatus(true);
-        }
-    } else {
-        const { service, version, url } = currentAction;
-        logToConsole(service, `Запуск обновления с GitHub до версии ${version}...`, "cmd");
-        logToConsole(service, `Загрузка с: ${url}`, "output");
-        
-        // Temporarily disable buttons in that row
-        const row = document.querySelector(`tr[data-service="${service}"]`);
-        const upgradeBtns = row ? row.querySelectorAll(".btn-upgrade, .badge-update") : [];
-        upgradeBtns.forEach(btn => btn.disabled = true);
-        
-        try {
-            const response = await fetch(`${routerHost}/api/update`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ service, version, url }),
-                mode: "cors"
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                logToConsole(service, `Обновление завершено успешно!`, "success");
-                if (result.output) {
-                    logToConsole(service, result.output, "output");
-                }
-            } else {
-                logToConsole(service, `Сбой обновления: ${result.output}`, "error");
-            }
-            
-        } catch (e) {
-            logToConsole(service, `Сбой запроса на обновление: ${e.message}`, "error");
-        } finally {
-            resumeAutoRefresh();
-            fetchRouterStatus(true);
-        }
-    }
-}
-
-// Execute Manual shell command
-async function runManualCommand() {
-    const command = cmdInput.value.trim();
-    if (!command || !isConnected) return;
-    
-    cmdInput.value = "";
-    logToConsole("Шелл", `Запуск команды: ${command}`, "cmd");
-    btnRunCmd.disabled = true;
-    
-    try {
-        const response = await fetch(`${routerHost}/api/exec`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ command }),
-            mode: "cors"
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        if (result.success) {
-            logToConsole("Шелл", `Результат (код 0):\n${result.output}`, "success");
-        } else {
-            logToConsole("Шелл", `Сбой (код ${result.exit_code}):\n${result.output}`, "error");
-        }
-    } catch (e) {
-        logToConsole("Шелл", `Ошибка запроса: ${e.message}`, "error");
-    } finally {
-        btnRunCmd.disabled = false;
-    }
-}
-
-// Run OPKG list update
-async function runOpkgUpdate() {
-    if (!isConnected) return;
-    
-    logToConsole("OPKG", "Выполнение opkg update...", "cmd");
-    btnOpkgUpdate.disabled = true;
-    
-    try {
-        const response = await fetch(`${routerHost}/api/exec`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ command: "/opt/bin/opkg update", timeout: 180 }),
-            mode: "cors"
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        if (result.success) {
-            logToConsole("OPKG", `Списки пакетов успешно обновлены!\n${result.output}`, "success");
-            // Reload status to fetch new versions in background
-            fetchRouterStatus(true);
-        } else {
-            logToConsole("OPKG", `Сбой обновления списков (код ${result.exit_code}):\n${result.output}`, "error");
-        }
-    } catch (e) {
-        logToConsole("OPKG", `Ошибка запроса к роутеру: ${e.message}`, "error");
-    } finally {
-        btnOpkgUpdate.disabled = false;
-    }
-}
-
-function pauseAutoRefresh() {
+function pauseAutoRefresh(durationMs = 60000) {
     isRefreshPaused = true;
+    setTimeout(() => { isRefreshPaused = false; }, durationMs);
 }
 
 function resumeAutoRefresh() {
     isRefreshPaused = false;
 }
+
+// --- Fetch Router Status ---
+
+async function fetchRouterStatus(force = false) {
+    try {
+        const resp = await apiRequest("/api/status");
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        lastServicesData = data.services_detailed || convertLegacyServices(data.services);
+        lastCatalogData = data.catalog || [];
+        lastVersionsData = data.versions || {};
+        lastOpkgVersionsData = data.opkg_versions || {};
+
+        if (data.system) {
+            renderSystemStats(data.system);
+        }
+
+        // Check ttyd status for badge
+        const ttydService = lastServicesData.find(s => s.id === "ttyd");
+        if (ttydStatusBadge) {
+            if (ttydService && ttydService.status === "running") {
+                ttydStatusBadge.className = "badge badge-success";
+                ttydStatusBadge.innerHTML = `<i class="fa-solid fa-circle"></i> ttyd активен (порт 7681)`;
+            } else {
+                ttydStatusBadge.className = "badge badge-secondary";
+                ttydStatusBadge.innerHTML = `<i class="fa-regular fa-circle"></i> ttyd остановлен`;
+            }
+        }
+
+        await fetchUpstreamVersions();
+        renderServicesTable(lastServicesData);
+        renderCatalogTable(lastCatalogData);
+
+    } catch (e) {
+        if (!e.message || !e.message.includes("401")) {
+            logToConsole(`Сбой получения статуса: ${e.message}`, "error");
+        }
+    }
+}
+
+function convertLegacyServices(servicesObj) {
+    if (!servicesObj) return [];
+    return Object.keys(servicesObj).map(id => {
+        const meta = SERVICE_METADATA[id] || {};
+        return {
+            id,
+            name: meta.name || id,
+            desc: meta.desc || "",
+            status: servicesObj[id],
+            is_core: ["dropbear", "nfqws2", "tg-ws-proxy", "tailscale"].includes(id),
+            package: id
+        };
+    });
+}
+
+function renderSystemStats(sys) {
+    const cpuEl = document.getElementById("cpu-load");
+    if (cpuEl) cpuEl.textContent = sys.cpu_load || "-- -- --";
+
+    const ramFill = document.getElementById("ram-fill");
+    const ramText = document.getElementById("ram-text");
+    const ramPct = document.getElementById("ram-pct");
+
+    if (sys.mem_total && sys.mem_total > 0) {
+        const totalMb = Math.round(sys.mem_total / (1024 * 1024));
+        const freeMb = Math.round(sys.mem_free / (1024 * 1024));
+        const usedMb = Math.max(0, totalMb - freeMb);
+        const pct = sys.mem_used_pct || Math.round((usedMb / totalMb) * 100);
+
+        if (ramFill) ramFill.style.width = `${pct}%`;
+        if (ramText) ramText.textContent = `${usedMb} / ${totalMb} MB`;
+        if (ramPct) ramPct.textContent = `${pct}%`;
+    }
+
+    const diskFill = document.getElementById("disk-fill");
+    const diskText = document.getElementById("disk-text");
+    const diskPct = document.getElementById("disk-pct");
+
+    if (sys.disk_used_pct !== undefined) {
+        if (diskFill) diskFill.style.width = `${sys.disk_used_pct}%`;
+        if (diskText) diskText.textContent = `${sys.disk_used} / ${sys.disk_total}`;
+        if (diskPct) diskPct.textContent = `${sys.disk_used_pct}%`;
+    }
+}
+
+// --- GitHub API Release Caching (Fix F1: 1-hour cache prevents rate limit) ---
+
+async function fetchUpstreamVersions() {
+    if (isUpstreamFetching) return;
+    isUpstreamFetching = true;
+
+    const CACHE_KEY = "grouter_github_cache";
+    const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+    try {
+        const cachedRaw = localStorage.getItem(CACHE_KEY);
+        if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw);
+            if (Date.now() - cached.timestamp < CACHE_TTL_MS && cached.data) {
+                Object.keys(cached.data).forEach(s => {
+                    if (upstreamReleases[s]) {
+                        upstreamReleases[s].latest = cached.data[s].latest;
+                        upstreamReleases[s].url = cached.data[s].url;
+                    }
+                });
+                isUpstreamFetching = false;
+                return;
+            }
+        }
+
+        const cacheToSave = {};
+        for (const [service, info] of Object.entries(upstreamReleases)) {
+            try {
+                const res = await fetch(`https://api.github.com/repos/${info.repo}/releases/latest`, {
+                    headers: { "Accept": "application/vnd.github.v3+json" }
+                });
+                if (res.ok) {
+                    const release = await res.json();
+                    info.latest = release.tag_name;
+                    const asset = release.assets?.find(a => a.name.includes(info.keyword));
+                    info.url = asset ? asset.browser_download_url : null;
+                    cacheToSave[service] = { latest: info.latest, url: info.url };
+                }
+            } catch (err) {
+                // Ignore individual release check failure
+            }
+        }
+
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+            timestamp: Date.now(),
+            data: cacheToSave
+        }));
+
+    } catch (e) {
+        // Fallback silently if offline or blocked
+    } finally {
+        isUpstreamFetching = false;
+    }
+}
+
+// --- Render Services Table ---
+
+function renderServicesTable(services) {
+    if (!servicesTbody) return;
+    if (installedCount) installedCount.textContent = services.length;
+
+    if (services.length === 0) {
+        servicesTbody.innerHTML = `<tr><td colspan="5" class="empty-state">Нет установленных служб</td></tr>`;
+        return;
+    }
+
+    servicesTbody.innerHTML = "";
+
+    services.forEach(svc => {
+        const tr = document.createElement("tr");
+
+        // Service Name & Desc
+        const tdName = document.createElement("td");
+        tdName.innerHTML = `<strong>${escapeHtml(svc.name)}</strong><br><small style="color:var(--text-secondary)">${escapeHtml(svc.desc)}</small>`;
+
+        // Status Badge
+        const tdStatus = document.createElement("td");
+        const isRunning = svc.status === "running";
+        tdStatus.innerHTML = `<span class="badge ${isRunning ? "badge-success" : "badge-secondary"}"><i class="fa-solid fa-circle"></i> ${isRunning ? "Работает" : "Остановлен"}</span>`;
+
+        // Current Version
+        const tdVer = document.createElement("td");
+        const curVer = lastVersionsData[svc.id] || "установлен";
+        tdVer.innerHTML = `<code>${escapeHtml(curVer)}</code>`;
+
+        // Available Version
+        const tdAvail = document.createElement("td");
+        let availVer = "--";
+        let isUpdate = false;
+        let updateUrl = null;
+
+        if (upstreamReleases[svc.id] && upstreamReleases[svc.id].latest) {
+            availVer = upstreamReleases[svc.id].latest;
+            updateUrl = upstreamReleases[svc.id].url;
+            if (curVer !== "unknown" && curVer !== availVer && curVer.replace(/^v/, "") !== availVer.replace(/^v/, "")) {
+                isUpdate = true;
+            }
+        } else if (svc.package && lastOpkgVersionsData[svc.package]) {
+            availVer = lastOpkgVersionsData[svc.package];
+            if (curVer !== "unknown" && curVer !== availVer) {
+                isUpdate = true;
+            }
+        }
+        tdAvail.innerHTML = isUpdate ? `<span class="badge badge-warning" title="Доступно обновление"><i class="fa-solid fa-arrow-up"></i> ${escapeHtml(availVer)}</span>` : `<span style="color:var(--text-secondary)">${escapeHtml(availVer)}</span>`;
+
+        // Actions
+        const tdActions = document.createElement("td");
+        const btnGroup = document.createElement("div");
+        btnGroup.className = "btn-group";
+
+        if (isRunning) {
+            btnGroup.innerHTML += `<button class="btn btn-secondary btn-xs action-btn" data-action="restart" data-svc="${svc.id}" title="Перезапустить"><i class="fa-solid fa-rotate-right"></i></button>`;
+            btnGroup.innerHTML += `<button class="btn btn-secondary btn-xs action-btn" data-action="stop" data-svc="${svc.id}" title="Остановить"><i class="fa-solid fa-stop"></i></button>`;
+        } else {
+            btnGroup.innerHTML += `<button class="btn btn-primary btn-xs action-btn" data-action="start" data-svc="${svc.id}" title="Запустить"><i class="fa-solid fa-play"></i></button>`;
+        }
+
+        if (isUpdate) {
+            btnGroup.innerHTML += `<button class="btn btn-warning btn-xs update-btn" data-svc="${svc.id}" data-ver="${availVer}" data-url="${updateUrl || ""}" title="Обновить"><i class="fa-solid fa-cloud-arrow-down"></i></button>`;
+        }
+
+        if (svc.can_uninstall) {
+            btnGroup.innerHTML += `<button class="btn btn-danger btn-xs uninstall-btn" data-svc="${svc.id}" title="Удалить службу"><i class="fa-solid fa-trash-can"></i></button>`;
+        }
+
+        tdActions.appendChild(btnGroup);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdVer);
+        tr.appendChild(tdAvail);
+        tr.appendChild(tdActions);
+
+        servicesTbody.appendChild(tr);
+    });
+
+    // Attach event listeners
+    servicesTbody.querySelectorAll(".action-btn").forEach(btn => {
+        btn.addEventListener("click", () => controlService(btn.dataset.svc, btn.dataset.action));
+    });
+
+    servicesTbody.querySelectorAll(".update-btn").forEach(btn => {
+        btn.addEventListener("click", () => triggerUpdate(btn.dataset.svc, btn.dataset.ver, btn.dataset.url));
+    });
+
+    servicesTbody.querySelectorAll(".uninstall-btn").forEach(btn => {
+        btn.addEventListener("click", () => triggerUninstall(btn.dataset.svc));
+    });
+}
+
+// --- Render Catalog Table ---
+
+function renderCatalogTable(catalog) {
+    if (!catalogTbody) return;
+    if (catalogCount) catalogCount.textContent = catalog.length;
+
+    if (catalog.length === 0) {
+        catalogTbody.innerHTML = `<tr><td colspan="4" class="empty-state">Все доступные службы уже установлены</td></tr>`;
+        return;
+    }
+
+    catalogTbody.innerHTML = "";
+
+    catalog.forEach(item => {
+        const tr = document.createElement("tr");
+
+        const tdName = document.createElement("td");
+        tdName.innerHTML = `<strong>${escapeHtml(item.name)}</strong>`;
+
+        const tdDesc = document.createElement("td");
+        tdDesc.textContent = item.desc || "";
+
+        const tdVer = document.createElement("td");
+        const v = (item.package && lastOpkgVersionsData[item.package]) || "OPKG репозиторий";
+        tdVer.innerHTML = `<code>${escapeHtml(v)}</code>`;
+
+        const tdAction = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.className = "btn btn-primary btn-sm";
+        btn.innerHTML = `<i class="fa-solid fa-download"></i> Установить`;
+        btn.addEventListener("click", () => triggerCatalogInstall(item.id, item.install_cmd));
+        tdAction.appendChild(btn);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdDesc);
+        tr.appendChild(tdVer);
+        tr.appendChild(tdAction);
+
+        catalogTbody.appendChild(tr);
+    });
+}
+
+function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// --- Actions & Control ---
+
+async function controlService(service, action) {
+    logToConsole(`Выполнение: ${action} службы ${service}...`);
+    pauseAutoRefresh(15000);
+    try {
+        const resp = await apiRequest("/api/service", {
+            method: "POST",
+            body: JSON.stringify({ service, action })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            logToConsole(`Служба ${service}: успешно выполнено ${action}`, "success");
+        } else {
+            logToConsole(`Ошибка действия ${action} для ${service}: ${data.error || data.output || "Неизвестная ошибка"}`, "error");
+        }
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Сетевой сбой при управлении службой: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+async function triggerCatalogInstall(serviceId, customCmd) {
+    logToConsole(`Запуск установки ${serviceId}...`);
+    pauseAutoRefresh(60000);
+    try {
+        const resp = await apiRequest("/api/service", {
+            method: "POST",
+            body: JSON.stringify({ service: serviceId, action: "install", install_cmd: customCmd })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            logToConsole(`Служба ${serviceId} успешно установлена!`, "success");
+        } else {
+            logToConsole(`Ошибка установки ${serviceId}: ${data.error || data.output}`, "error");
+        }
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Ошибка при отправке запроса установки: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+async function triggerUninstall(serviceId) {
+    if (!confirm(`Вы действительно хотите удалить службу ${serviceId}?`)) return;
+    logToConsole(`Удаление службы ${serviceId}...`);
+    pauseAutoRefresh(30000);
+    try {
+        const resp = await apiRequest("/api/service", {
+            method: "POST",
+            body: JSON.stringify({ service: serviceId, action: "uninstall" })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            logToConsole(`Служба ${serviceId} успешно удалена`, "success");
+        } else {
+            logToConsole(`Ошибка при удалении ${serviceId}: ${data.error || data.output}`, "error");
+        }
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Сбой удаления: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+function triggerUpdate(service, version, url) {
+    pendingUpdate = { service, version, url };
+    const textEl = document.getElementById("confirm-modal-text");
+    const detEl = document.getElementById("confirm-modal-details");
+    if (textEl) textEl.textContent = `Обновить службу ${service} до версии ${version}?`;
+    if (detEl) detEl.textContent = url ? `Источник: ${url}` : "Источник: репозиторий OPKG";
+    toggleModal(confirmModal, true);
+}
+
+async function executePendingUpdate() {
+    toggleModal(confirmModal, false);
+    if (!pendingUpdate) return;
+    const { service, version, url } = pendingUpdate;
+    logToConsole(`Запуск обновления ${service} до ${version}...`);
+    pauseAutoRefresh(60000);
+    try {
+        const resp = await apiRequest("/api/update", {
+            method: "POST",
+            body: JSON.stringify({ service, version, url })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            logToConsole(`Обновление ${service} успешно завершено!`, "success");
+        } else {
+            logToConsole(`Ошибка обновления ${service}: ${data.error || data.output}`, "error");
+        }
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Сбой обновления: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+        pendingUpdate = null;
+    }
+}
+
+// --- Quick Command Execution ---
+
+async function runManualCommand(cmd) {
+    if (!cmd) cmd = cmdInput ? cmdInput.value.trim() : "";
+    if (!cmd) return;
+
+    // Add to history
+    if (!commandHistory.includes(cmd)) {
+        commandHistory.push(cmd);
+        if (commandHistory.length > 50) commandHistory.shift();
+    }
+    historyIndex = commandHistory.length;
+
+    logToConsole(`> ${cmd}`, "system");
+    if (cmdInput) cmdInput.value = "";
+    if (btnRunCmd) btnRunCmd.disabled = true;
+
+    pauseAutoRefresh(30000);
+    try {
+        const resp = await apiRequest("/api/exec", {
+            method: "POST",
+            body: JSON.stringify({ command: cmd, timeout: 120 })
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            const out = data.output ? data.output.trim() : "[Нет вывода]";
+            logToConsole(out, data.success ? "info" : "error");
+        } else {
+            logToConsole(`Ошибка: ${data.error || "Сбой команды"}`, "error");
+        }
+    } catch (e) {
+        logToConsole(`Ошибка выполнения команды: ${e.message}`, "error");
+    } finally {
+        if (btnRunCmd) btnRunCmd.disabled = false;
+        resumeAutoRefresh();
+    }
+}
+
+// --- Event Listeners Initialization ---
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Restore saved host
+    const savedHost = localStorage.getItem("grouter_host");
+    if (savedHost && hostInput) {
+        hostInput.value = savedHost;
+        routerHost = savedHost;
+    }
+
+    // Connect button
+    if (btnConnect) btnConnect.addEventListener("click", handleConnect);
+    if (btnRefresh) btnRefresh.addEventListener("click", () => fetchRouterStatus(true));
+    if (btnClearConsole) btnClearConsole.addEventListener("click", clearConsole);
+    if (btnLogout) btnLogout.addEventListener("click", handleLogout);
+
+    // Opkg update button
+    if (btnOpkgUpdate) {
+        btnOpkgUpdate.addEventListener("click", () => runManualCommand("opkg update"));
+    }
+
+    // Quick command buttons
+    document.querySelectorAll(".quick-cmd-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const cmd = btn.dataset.cmd;
+            if (cmd) runManualCommand(cmd);
+        });
+    });
+
+    // Run command input & keyboard
+    if (btnRunCmd) btnRunCmd.addEventListener("click", () => runManualCommand());
+    if (cmdInput) {
+        cmdInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                runManualCommand();
+            } else if (e.key === "ArrowUp") {
+                if (commandHistory.length > 0 && historyIndex > 0) {
+                    historyIndex--;
+                    cmdInput.value = commandHistory[historyIndex];
+                }
+                e.preventDefault();
+            } else if (e.key === "ArrowDown") {
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    cmdInput.value = commandHistory[historyIndex];
+                } else {
+                    historyIndex = commandHistory.length;
+                    cmdInput.value = "";
+                }
+                e.preventDefault();
+            }
+        });
+    }
+
+    // Tab buttons
+    if (tabBtnInstalled) tabBtnInstalled.addEventListener("click", () => switchTab("installed"));
+    if (tabBtnCatalog) tabBtnCatalog.addEventListener("click", () => switchTab("catalog"));
+    if (tabBtnTerminal) tabBtnTerminal.addEventListener("click", () => switchTab("terminal"));
+
+    // Terminal restart button
+    if (btnRestartTtyd) {
+        btnRestartTtyd.addEventListener("click", () => controlService("ttyd", "restart"));
+    }
+
+    // Login Form Submit
+    if (loginForm) {
+        loginForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const u = loginUsernameInput ? loginUsernameInput.value.trim() : "admin";
+            const p = loginPasswordInput ? loginPasswordInput.value.trim() : "";
+            submitLogin(u, p);
+        });
+    }
+
+    // Modals
+    if (btnCloseModal) btnCloseModal.addEventListener("click", () => toggleModal(helpModal, false));
+    if (btnModalOk) btnModalOk.addEventListener("click", () => toggleModal(helpModal, false));
+    if (btnCloseConfirm) btnCloseConfirm.addEventListener("click", () => toggleModal(confirmModal, false));
+    if (btnConfirmCancel) btnConfirmCancel.addEventListener("click", () => toggleModal(confirmModal, false));
+    if (btnConfirmYes) btnConfirmYes.addEventListener("click", executePendingUpdate);
+
+    // Initial check: if token exists, try connecting immediately
+    if (getToken()) {
+        handleConnect();
+    } else {
+        // Show login modal on initial load so user can enter admin / Salomanov
+        showLoginModal();
+    }
+});

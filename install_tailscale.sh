@@ -121,9 +121,13 @@ iptables -t mangle -C FORWARD -i tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TC
 # 5. Reject IPv6 forwarding from tailscale0 immediately to eliminate Happy Eyeballs timeouts
 ip6tables -C FORWARD -i tailscale0 -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null || ip6tables -I FORWARD -i tailscale0 -j REJECT --reject-with icmp6-port-unreachable
 
-# NAT masquerade for Exit Node
+# NAT masquerade for Exit Node (auto-detect default outgoing WAN interface)
+DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
+[ -z "$DEF_IFACE" ] && DEF_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+[ -z "$DEF_IFACE" ] && DEF_IFACE="ppp0"
+
 iptables -t nat -C POSTROUTING -s 100.64.0.0/10 -j MASQUERADE 2>/dev/null || iptables -t nat -I POSTROUTING -s 100.64.0.0/10 -j MASQUERADE
-iptables -t nat -C POSTROUTING -o ppp0 -j MASQUERADE 2>/dev/null || iptables -t nat -I POSTROUTING -o ppp0 -j MASQUERADE
+iptables -t nat -C POSTROUTING -o "$DEF_IFACE" -j MASQUERADE 2>/dev/null || iptables -t nat -I POSTROUTING -o "$DEF_IFACE" -j MASQUERADE
 EOF
 chmod +x /opt/etc/ndm/netfilter.d/010-tailscale.sh
 /opt/etc/ndm/netfilter.d/010-tailscale.sh

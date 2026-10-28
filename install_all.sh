@@ -2,10 +2,11 @@
 
 # ==========================================================
 # Full Router Setup (Все компоненты одной командой)
-# 1. GRouter Control Panel (Веб-панель)
+# 1. GRouter Control Panel + ttyd (PuTTY веб-терминал)
 # 2. nfqws2 Anti-DPI (YouTube 4K, Instagram, Трекеры)
 # 3. tg-ws-proxy (Прокси для Telegram)
-# 4. Tailscale (VPN Exit Node + Удаленный доступ)
+# 4. Tailscale (VPN Exit Node + удаленный доступ)
+# 5. DoT/DoH DNS Resolver
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -15,7 +16,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 printf "${CYAN}==========================================================${NC}\n"
-printf "${CYAN}      GRouter Full Auto-Setup (Полная настройка)         ${NC}\n"
+printf "${CYAN}      GRouter Full Auto-Setup (Полная установка)         ${NC}\n"
 printf "${CYAN}==========================================================${NC}\n\n"
 
 if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
@@ -27,32 +28,40 @@ fi
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
-# 1. Панель управления
-printf "\n${YELLOW}>>> [1/5] Установка панели управления GRouter...${NC}\n"
-curl -sL "${REPO_RAW}/install.sh${CACHE_BUST}" | sh
+run_step() {
+    step_num="$1"
+    step_name="$2"
+    step_url="$3"
+
+    printf "\n${YELLOW}>>> [${step_num}/5] Установка ${step_name}...${NC}\n"
+    if curl -fsSL "${step_url}${CACHE_BUST}" | sh; then
+        printf "${GREEN}[OK] ${step_name} успешно установлен.${NC}\n"
+    else
+        printf "${RED}[ОШИБКА] Сбой при установке ${step_name}! Проверьте интернет-соединение.${NC}\n"
+    fi
+}
+
+# 1. Панель управления + ttyd
+run_step "1" "GRouter Control Panel & Web-терминал" "${REPO_RAW}/install.sh"
 
 # 2. Обход блокировок nfqws2
-printf "\n${YELLOW}>>> [2/5] Установка nfqws2 (YouTube, Instagram, Трекеры)...${NC}\n"
-curl -sL "${REPO_RAW}/install_nfqws2.sh${CACHE_BUST}" | sh
+run_step "2" "nfqws2 Anti-DPI" "${REPO_RAW}/install_nfqws2.sh"
 
 # 3. Telegram Proxy
-printf "\n${YELLOW}>>> [3/5] Установка Telegram Proxy (tg-ws-proxy)...${NC}\n"
-curl -sL "${REPO_RAW}/install_tg_proxy.sh${CACHE_BUST}" | sh
+run_step "3" "Telegram Proxy (tg-ws-proxy)" "${REPO_RAW}/install_tg_proxy.sh"
 
 # 4. Tailscale VPN
-printf "\n${YELLOW}>>> [4/5] Установка Tailscale (VPN Exit Node)...${NC}\n"
-curl -sL "${REPO_RAW}/install_tailscale.sh${CACHE_BUST}" | sh
+run_step "4" "Tailscale (VPN Exit Node)" "${REPO_RAW}/install_tailscale.sh"
 
 # 5. Защищенный DoT/DoH DNS
-printf "\n${YELLOW}>>> [5/5] Настройка защищенного DoT/DoH DNS (без цензуры провайдеров)...${NC}\n"
-curl -sL "${REPO_RAW}/setup_dns.sh${CACHE_BUST}" | sh
+run_step "5" "DoT/DoH DNS" "${REPO_RAW}/setup_dns.sh"
 
 printf "\n${GREEN}==========================================================${NC}\n"
-printf "${GREEN}      ВСЕ КОМПОНЕНТЫ УСПЕШНО УСТАНОВЛЕНЫ И ЗАПУЩЕНЫ!      ${NC}\n"
+printf "${GREEN}      УСТАНОВКА ВСЕХ КОМПОНЕНТОВ ЗАВЕРШЕНА!               ${NC}\n"
 printf "${GREEN}==========================================================${NC}\n\n"
-printf "👉 Веб-панель управления GRouter: http://192.168.1.1:8089/\n"
+printf "👉 Веб-панель GRouter: http://192.168.1.1:8089/\n"
+printf "👉 Веб-терминал PuTTY (ttyd): http://192.168.1.1:7681/\n"
+printf "👉 Авторизация панели и терминала: admin / Salomanov\n"
 printf "👉 Веб-интерфейс nfqws: http://192.168.1.1:90/\n"
 printf "👉 YouTube 4K, Instagram и трекеры: активны через nfqws2\n"
-printf "👉 Прокси Telegram: активен на порту 1443\n"
-printf "👉 DNS: защищен через DoT/DoH (dns.malw.link, dns.geohide.ru, dns.dns-ai.ru)\n"
-printf "👉 Для завершения привязки Tailscale перейдите по ссылке выше в консоли.\n\n"
+printf "👉 Прокси Telegram: запущен на порту 1443\n\n"

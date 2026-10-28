@@ -894,3 +894,34 @@ body {
     transform: scale(1.1);
 }
 
+
+/* Additional styles for Auth & PuTTY Web Terminal */
+.badge-user {
+    background: rgba(14, 165, 233, 0.15);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(14, 165, 233, 0.3);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.terminal-frame-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #0d1117;
+}
+
+.quick-cmd-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    border-radius: 4px;
+}
+
+.quick-cmd-btn:hover {
+    background: var(--accent-cyan);
+    color: #000;
+    border-color: var(--accent-cyan);
+}

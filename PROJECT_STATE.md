@@ -11,7 +11,7 @@
 - **Storage:** Entware installed on `/opt`
 - **DPI Bypass Engine:** `nfqws2-keenetic` 1.3.1 (LUA zapret engine)
 - **Router Web API:** Python service running on port 8089 (`http://192.168.1.1:8089/api/exec`)
-- **Remote Gateway:** SSH on port 222 (`root:keenetic`)
+- **Remote Gateway:** SSH on port 222 (`root:<router_password>`)
 
 ## Current Working State (as of October 2026)
 1. **YouTube & Media Streaming:**
