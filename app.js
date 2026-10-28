@@ -854,7 +854,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Terminal restart button
     if (btnRestartTtyd) {
-        btnRestartTtyd.addEventListener("click", () => controlService("ttyd", "restart"));
+        btnRestartTtyd.addEventListener("click", async () => {
+            await controlService("ttyd", "restart");
+            setTimeout(() => {
+                if (terminalIframe) {
+                    const src = terminalIframe.src;
+                    terminalIframe.src = "about:blank";
+                    setTimeout(() => { terminalIframe.src = src; }, 500);
+                }
+            }, 2500);
+        });
     }
 
     // Login Form Submit

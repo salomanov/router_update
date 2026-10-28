@@ -95,6 +95,14 @@
      - Added automatic restart of `lighttpd` and printed direct web interface URL `http://192.168.1.1:8088/` upon completion.
      - Updated `install_all.sh` to display the nfqws web interface link alongside GRouter.
 
+11. **Accurate Package Version Resolution (October 2026):**
+    - `router_api.py` now prioritizes package manager state (`opkg status <pkg>`) before falling back to binary CLI `-v` flags.
+    - Resolves `tg-ws-proxy` version detection (`0.11-3`) and eliminates false `↑ 0.11-3` update prompts.
+12. **Embedded Web Terminal (ttyd / Web PuTTY):**
+    - Browser subframe anti-phishing policies block HTTP 401 Basic Auth dialogs inside `<iframe>`.
+    - Implemented `/opt/scripts/ttyd_shell.sh`: an interactive authentication wrapper allowing `ttyd` to serve `200 OK` to the iframe while verifying password (`Salomanov`) in-terminal.
+    - Updated UI tab badges and iframe clipboard permissions.
+
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).

@@ -450,7 +450,12 @@ def get_installed_versions(force=False):
     services = discover_services()
     for s_id, s_info in services.items():
         v = None
-        if s_id == "usque":
+        if s_info.get("package"):
+            pkg_v = get_opkg_package_version(s_info["package"])
+            if pkg_v != "unknown":
+                v = pkg_v
+
+        if not v and s_id == "usque":
             if os.path.exists("/opt/bin/usque"):
                 try:
                     res = subprocess.run(["/opt/bin/usque", "-v"], capture_output=True, text=True, timeout=3)
@@ -459,7 +464,7 @@ def get_installed_versions(force=False):
                         v = match.group(0)
                 except Exception:
                     pass
-        elif s_id == "tg-ws-proxy":
+        elif not v and s_id == "tg-ws-proxy":
             if os.path.exists("/opt/bin/tg-ws-proxy"):
                 try:
                     res = subprocess.run(["/opt/bin/tg-ws-proxy", "-version"], capture_output=True, text=True, timeout=3)
@@ -468,10 +473,6 @@ def get_installed_versions(force=False):
                         v = match.group(0)
                 except Exception:
                     pass
-        elif s_info.get("package"):
-            pkg_v = get_opkg_package_version(s_info["package"])
-            if pkg_v != "unknown":
-                v = pkg_v
 
         if not v:
             if s_info.get("script") and os.path.exists(s_info["script"]):

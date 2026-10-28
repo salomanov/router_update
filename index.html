@@ -109,10 +109,10 @@
             
             <div class="tabs-nav">
                 <button id="tab-btn-installed" class="tab-btn active">
-                    <i class="fa-solid fa-circle-check"></i> Установленные службы (<span id="installed-count">0</span>)
+                    <i class="fa-solid fa-circle-check"></i> Установленные службы <span id="installed-count">0</span>
                 </button>
                 <button id="tab-btn-catalog" class="tab-btn">
-                    <i class="fa-solid fa-boxes-packing"></i> Каталог приложений (<span id="catalog-count">0</span>)
+                    <i class="fa-solid fa-boxes-packing"></i> Каталог приложений <span id="catalog-count">0</span>
                 </button>
                 <button id="tab-btn-terminal" class="tab-btn">
                     <i class="fa-solid fa-terminal"></i> Терминал PuTTY (ttyd)
@@ -163,7 +163,7 @@
                 <div class="terminal-controls-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
                     <div class="terminal-info" style="display: flex; align-items: center; gap: 12px;">
                         <span id="ttyd-status-badge" class="badge badge-success"><i class="fa-solid fa-circle"></i> ttyd активен</span>
-                        <span class="terminal-hint" style="font-size: 13px; color: var(--text-secondary);"><i class="fa-solid fa-key"></i> Логин: <strong>admin</strong> | Пароль: <strong>Salomanov</strong></span>
+                        <span class="terminal-hint" style="font-size: 13px; color: var(--text-secondary);"><i class="fa-solid fa-key"></i> Пароль терминала: <strong>Salomanov</strong></span>
                     </div>
                     <div class="terminal-actions" style="display: flex; gap: 8px;">
                         <button id="btn-restart-ttyd" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> Перезапустить ttyd</button>
@@ -171,7 +171,7 @@
                     </div>
                 </div>
                 <div class="terminal-frame-container" style="width: 100%; height: 520px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-color); background: #0d1117;">
-                    <iframe id="terminal-iframe" src="" style="width: 100%; height: 100%; border: none;"></iframe>
+                    <iframe id="terminal-iframe" src="" allow="clipboard-read; clipboard-write" style="width: 100%; height: 100%; border: none;"></iframe>
                 </div>
             </div>
         </section>
