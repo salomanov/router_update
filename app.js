@@ -228,18 +228,19 @@ function switchTab(targetTab) {
 }
 
 function initTerminalView() {
-    let host = "192.168.1.1";
+    let host = window.location.hostname || "192.168.1.1";
     try {
         const u = new URL(routerHost);
-        host = u.hostname;
+        if (u.hostname) host = u.hostname;
     } catch (e) {}
 
     const terminalUrl = `http://${host}:7681/`;
     if (btnFullscreenTerminal) {
         btnFullscreenTerminal.href = terminalUrl;
     }
-    if (terminalIframe && (!terminalIframe.src || terminalIframe.src === "about:blank")) {
-        terminalIframe.src = terminalUrl;
+    const frame = document.getElementById("terminal-iframe") || terminalIframe;
+    if (frame && (!frame.src || !frame.src.includes(":7681"))) {
+        frame.src = terminalUrl;
     }
 }
 
