@@ -80,7 +80,7 @@ KNOWN_SERVICES = {
         "script_prefixes": ["S51nfqws2"],
         "proc": "nfqws",
         "package": "nfqws2-keenetic",
-        "git": "https://github.com/bol-van/zapret",
+        "git": "https://github.com/nfqws/nfqws2-keenetic",
         "install_cmd": "curl -fsSL https://raw.githubusercontent.com/salomanov/router_update/main/install_nfqws2.sh | sh",
         "is_core": True
     },
@@ -125,16 +125,17 @@ KNOWN_SERVICES = {
         "uninstall_pkg": "mosquitto-ssl",
         "is_core": False
     },
-    "lighttpd": {
-        "name": "Lighttpd",
-        "desc": "Веб-сервер роутера",
+    "nfqws-web": {
+        "name": "Веб-интерфейс nfqws (Web UI)",
+        "desc": "Официальная веб-панель управления nfqws / zapret (порт 8088 / 90)",
         "script_prefixes": ["S80lighttpd"],
         "proc": "lighttpd",
-        "package": "lighttpd",
-        "git": "https://github.com/lighttpd/lighttpd1.4",
-        "install_cmd": "/opt/bin/opkg install lighttpd",
-        "uninstall_pkg": "lighttpd",
-        "is_core": False
+        "package": "nfqws-keenetic-web",
+        "git": "https://github.com/nfqws/nfqws-keenetic-web",
+        "install_cmd": "/opt/bin/opkg install nfqws-keenetic-web lighttpd lighttpd-mod-redirect lighttpd-mod-rewrite lighttpd-mod-setenv lighttpd-mod-cgi php8-cgi",
+        "uninstall_pkg": "nfqws-keenetic-web",
+        "is_core": False,
+        "port": 8088
     },
     "3proxy": {
         "name": "3proxy",
@@ -498,21 +499,15 @@ def get_all_opkg_repo_versions(force=False):
         return repo_versions
 
     try:
-        packages_to_check = set()
-        for meta in KNOWN_SERVICES.values():
-            if meta.get("package"):
-                for p in meta["package"].split():
-                    packages_to_check.add(p)
-        if packages_to_check:
-            cmd = ["/opt/bin/opkg", "info"] + list(packages_to_check)
-            out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=10)
-            curr_pkg = None
-            for line in out.split("\n"):
-                if line.startswith("Package:"):
-                    curr_pkg = line.split(":", 1)[1].strip()
-                elif line.startswith("Version:") and curr_pkg:
-                    repo_versions[curr_pkg] = line.split(":", 1)[1].strip()
-                    curr_pkg = None
+        # Single fast call fetching all packages with versions from OPKG database
+        cmd = ["/opt/bin/opkg", "list"]
+        out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=10)
+        for line in out.splitlines():
+            parts = line.split(" - ", 2)
+            if len(parts) >= 2:
+                pkg_name = parts[0].strip()
+                pkg_ver = parts[1].strip()
+                repo_versions[pkg_name] = pkg_ver
     except Exception as e:
         logger.error(f"Error fetching repo versions: {e}")
 

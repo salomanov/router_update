@@ -857,25 +857,272 @@ body {
     }
 }
 
-/* Responsive adjustments */
+/* --- Comprehensive Mobile & Responsive System --- */
 @media (max-width: 768px) {
+    .app-container {
+        padding: 12px 10px;
+    }
+
+    /* Header & Connection section */
     .app-header {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
+        gap: 16px;
+        margin-bottom: 16px;
     }
     
+    .logo-area {
+        justify-content: flex-start;
+    }
+
     .connection-config {
         width: 100%;
         flex-direction: column;
         align-items: stretch;
+        gap: 10px;
     }
     
+    .connection-config .input-group {
+        width: 100%;
+    }
+
     .input-wrapper input {
         width: 100%;
     }
-    
-    .app-container {
-        padding: 20px 10px;
+
+    .connection-config .btn {
+        width: 100%;
+        min-height: 40px;
+    }
+
+    #auth-header-section {
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .metric-card {
+        padding: 12px 14px;
+        gap: 12px;
+    }
+
+    .metric-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+    }
+
+    /* Section Headers */
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .header-buttons {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .header-buttons .btn {
+        flex: 1;
+        justify-content: center;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    /* Horizontally scrollable Tabs bar */
+    .tabs-nav {
+        display: flex;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        gap: 6px;
+        padding-bottom: 8px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .tabs-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* Mobile Card Layout for Services & Catalog Tables */
+    .services-table-wrapper {
+        overflow-x: visible;
+    }
+
+    .services-table,
+    .services-table tbody,
+    .services-table tr,
+    .services-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .services-table thead {
+        display: none;
+    }
+
+    .services-table tr {
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .services-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 7px 0;
+        border: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .services-table td::before {
+        content: attr(data-label);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .services-table td[data-label="Служба"],
+    .services-table td[data-label="Приложение"] {
+        display: block;
+        padding-top: 2px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(0, 242, 254, 0.2);
+        margin-bottom: 4px;
+    }
+
+    .services-table td[data-label="Служба"]::before,
+    .services-table td[data-label="Приложение"]::before {
+        display: none;
+    }
+
+    .services-table td[data-label="Служба"] strong,
+    .services-table td[data-label="Приложение"] strong {
+        font-size: 15px;
+    }
+
+    .services-table td[data-label="Служба"] .service-desc {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 3px;
+        line-height: 1.35;
+    }
+
+    .services-table td[data-label="Действия"],
+    .services-table td[data-label="Действие"] {
+        border-bottom: none;
+        padding-top: 10px;
+        padding-bottom: 2px;
+        display: flex;
+        justify-content: stretch;
+    }
+
+    .services-table td[data-label="Действия"]::before,
+    .services-table td[data-label="Действие"]::before {
+        display: none;
+    }
+
+    .services-table td[data-label="Действия"] .btn-group {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .services-table td[data-label="Действия"] .btn-group .btn {
+        flex: 1;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        border-radius: var(--border-radius-sm);
+    }
+
+    .services-table td[data-label="Действие"] .btn {
+        width: 100%;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+
+    /* Terminal on Mobile */
+    .terminal-controls-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .terminal-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .terminal-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .terminal-actions .btn {
+        flex: 1;
+        justify-content: center;
+        text-align: center;
+        font-size: 12px;
+        padding: 8px 10px;
+    }
+
+    .terminal-frame-container {
+        height: 380px !important;
+    }
+
+    /* Command Console on Mobile */
+    .cmd-input-wrapper {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .cmd-input-wrapper .btn {
+        width: 100%;
+        min-height: 40px;
+    }
+
+    .quick-cmds {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 6px;
+        -webkit-overflow-scrolling: touch;
+        gap: 6px;
+    }
+
+    .quick-cmd-btn {
+        flex-shrink: 0;
+        padding: 6px 10px;
+        font-size: 11px;
     }
 }
 

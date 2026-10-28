@@ -24,7 +24,7 @@ const SERVICE_METADATA = {
     "nfqws2": { name: "nfqws2 (zapret)", desc: "Обход систем фильтрации DPI / zapret", git: "https://github.com/bol-van/zapret" },
     "tg-ws-proxy": { name: "tg-ws-proxy", desc: "Прокси Telegram MTProto WebSockets (Go)", git: "https://github.com/spatiumstas/tg-ws-proxy-go" },
     "mosquitto": { name: "Mosquitto MQTT", desc: "Брокер сообщений для умного дома", git: "https://github.com/eclipse-mosquitto/mosquitto" },
-    "lighttpd": { name: "Lighttpd", desc: "Веб-сервер роутера", git: "https://github.com/lighttpd/lighttpd1.4" },
+    "nfqws-web": { name: "Веб-интерфейс nfqws (Web UI)", desc: "Официальная веб-панель nfqws / zapret (порт 8088 / 90)", git: "https://github.com/nfqws/nfqws-keenetic-web", port: 8088 },
     "tuya-mqtt-calibrator": { name: "Tuya MQTT Calibrator", desc: "Калибратор Tuya датчиков" },
     "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" },
     "tailscale": { name: "Tailscale VPN", desc: "Mesh VPN / Exit Node для удаленного доступа", git: "https://github.com/tailscale/tailscale" },
@@ -38,6 +38,8 @@ const SERVICE_METADATA = {
 
 // Upstream GitHub Releases Cache
 const upstreamReleases = {
+    "nfqws2": { repo: "nfqws/nfqws2-keenetic", keyword: ".ipk", latest: null, url: null, error: null },
+    "nfqws-web": { repo: "nfqws/nfqws-keenetic-web", keyword: ".ipk", latest: null, url: null, error: null },
     "tg-ws-proxy": { repo: "spatiumstas/tg-ws-proxy-go", keyword: "mipsel-3.4.ipk", latest: null, url: null, error: null },
     "usque": { repo: "Diniboy1123/usque", keyword: "mipsle.zip", latest: null, url: null, error: null }
 };
@@ -535,8 +537,15 @@ function renderServicesTable(services) {
         const curVer = lastVersionsData[svc.id] || "установлен";
         tdVer.innerHTML = `<code>${escapeHtml(curVer)}</code>`;
 
+        // Set data-labels for mobile responsive cards
+        tdName.setAttribute("data-label", "Служба");
+        tdStatus.setAttribute("data-label", "Статус");
+        tdVer.setAttribute("data-label", "Установлено");
+
         // Available Version
         const tdAvail = document.createElement("td");
+        tdAvail.setAttribute("data-label", "В репозитории");
+
         let availVer = "--";
         let isUpdate = false;
         let updateUrl = null;
@@ -547,18 +556,29 @@ function renderServicesTable(services) {
             if (curVer !== "unknown" && curVer !== availVer && curVer.replace(/^v/, "") !== availVer.replace(/^v/, "")) {
                 isUpdate = true;
             }
-        } else if (svc.package && lastOpkgVersionsData[svc.package]) {
-            availVer = lastOpkgVersionsData[svc.package];
-            if (curVer !== "unknown" && curVer !== availVer) {
-                isUpdate = true;
+        }
+        
+        if (availVer === "--" && svc.package) {
+            const pkgKey = svc.package.split(" ")[0];
+            if (lastOpkgVersionsData && lastOpkgVersionsData[pkgKey]) {
+                availVer = lastOpkgVersionsData[pkgKey];
+                if (curVer !== "unknown" && curVer !== availVer) {
+                    isUpdate = true;
+                }
             }
         }
         tdAvail.innerHTML = isUpdate ? `<span class="badge badge-warning" title="Доступно обновление"><i class="fa-solid fa-arrow-up"></i> ${escapeHtml(availVer)}</span>` : `<span style="color:var(--text-secondary)">${escapeHtml(availVer)}</span>`;
 
         // Actions
         const tdActions = document.createElement("td");
+        tdActions.setAttribute("data-label", "Действия");
         const btnGroup = document.createElement("div");
         btnGroup.className = "btn-group";
+
+        if (svc.port) {
+            const host = window.location.hostname || "192.168.1.1";
+            btnGroup.innerHTML += `<a href="http://${host}:${svc.port}/" target="_blank" class="btn btn-secondary btn-xs action-btn" title="Открыть веб-интерфейс (порт ${svc.port})"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`;
+        }
 
         if (isRunning) {
             btnGroup.innerHTML += `<button class="btn btn-secondary btn-xs action-btn" data-action="restart" data-svc="${svc.id}" title="Перезапустить"><i class="fa-solid fa-rotate-right"></i></button>`;
