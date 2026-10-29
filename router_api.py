@@ -265,9 +265,21 @@ RANDOM_PASSWORD_MODE = os.environ.get("GROUTER_RANDOM_PASSWORD", "").strip().low
 def hash_password(password, salt=None):
     if salt is None:
         salt = secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ITERATIONS
-    ).hex()
+    if hasattr(hashlib, "pbkdf2_hmac"):
+        hashed = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ITERATIONS
+        ).hex()
+    else:
+        import hmac
+        pwd_bytes = password.encode("utf-8")
+        salt_bytes = salt.encode("utf-8")
+        u = hmac.new(pwd_bytes, salt_bytes + b"\x00\x00\x00\x01", hashlib.sha256).digest()
+        t = bytearray(u)
+        for _ in range(1, PBKDF2_ITERATIONS):
+            u = hmac.new(pwd_bytes, u, hashlib.sha256).digest()
+            for j in range(32):
+                t[j] ^= u[j]
+        hashed = bytes(t).hex()
     return salt, hashed
 
 

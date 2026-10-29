@@ -43,7 +43,7 @@ if [ -f "$API_PIDFILE" ]; then
 fi
 
 # 2. Установка зависимостей
-DEPS="python3-light python3-email python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
+DEPS="python3-light python3-openssl python3-email python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
 printf "Проверка зависимостей...\n"
 opkg update > /dev/null 2>&1
 opkg install $DEPS > /dev/null 2>&1
