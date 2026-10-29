@@ -42,6 +42,7 @@
                 <!-- User / Auth Section -->
                 <div id="auth-header-section" class="auth-header-badge" style="display: none; align-items: center; gap: 8px;">
                     <span class="badge badge-user"><i class="fa-solid fa-user-shield"></i> <span id="current-user-name">admin</span></span>
+                    <button id="btn-change-password" class="btn btn-secondary btn-sm" title="Сменить пароль"><i class="fa-solid fa-key"></i></button>
                     <button id="btn-logout" class="btn btn-secondary btn-sm" title="Выйти из аккаунта"><i class="fa-solid fa-right-from-bracket"></i></button>
                 </div>
             </div>
@@ -101,7 +102,10 @@
         <section class="services-control section-card">
             <div class="section-header">
                 <h2 class="section-title"><i class="fa-solid fa-cubes"></i> Управление сервисами и пакетами</h2>
-                <div class="header-buttons" style="display: flex; gap: 8px;">
+                <div class="header-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button id="btn-plan" class="btn btn-secondary btn-sm" title="Сравнить профиль пакетов с роутером (dry-run)"><i class="fa-solid fa-clipboard-check"></i> Проверить профиль</button>
+                    <button id="btn-apply" class="btn btn-primary btn-sm" title="Установить недостающие пакеты из профиля"><i class="fa-solid fa-wand-magic-sparkles"></i> Применить профиль</button>
+                    <button id="btn-update-all" class="btn btn-warning btn-sm" title="Обновить все установленные пакеты"><i class="fa-solid fa-cloud-arrow-down"></i> Обновить всё</button>
                     <button id="btn-opkg-update" class="btn btn-secondary btn-sm" title="Обновить списки пакетов в репозиториях"><i class="fa-solid fa-arrows-rotate"></i> OPKG Update</button>
                     <button id="btn-refresh" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate"></i> Обновить статус</button>
                 </div>
@@ -163,7 +167,7 @@
                 <div class="terminal-controls-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
                     <div class="terminal-info" style="display: flex; align-items: center; gap: 12px;">
                         <span id="ttyd-status-badge" class="badge badge-success"><i class="fa-solid fa-circle"></i> ttyd активен</span>
-                        <span class="terminal-hint" style="font-size: 13px; color: var(--text-secondary);"><i class="fa-solid fa-key"></i> Пароль терминала: <strong>Salomanov</strong></span>
+                        <span class="terminal-hint" style="font-size: 13px; color: var(--text-secondary);"><i class="fa-solid fa-shield-halved"></i> Доступ только для вошедших в панель (сессия)</span>
                     </div>
                     <div class="terminal-actions" style="display: flex; gap: 8px;">
                         <button id="btn-restart-ttyd" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> Перезапустить ttyd</button>
@@ -237,12 +241,59 @@
                         <label for="login-password" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Пароль</label>
                         <div class="input-wrapper">
                             <i class="fa-solid fa-lock"></i>
-                            <input type="password" id="login-password" placeholder="Пароль (Salomanov или keenetic)" required autocomplete="current-password" autocapitalize="none" autocorrect="off" style="width: 100%;">
+                            <input type="password" id="login-password" placeholder="Пароль" required autocomplete="current-password" autocapitalize="none" autocorrect="off" style="width: 100%;">
                         </div>
                     </div>
                     <div id="login-error-msg" style="display: none; padding: 10px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; font-size: 13px; margin-bottom: 15px; text-align: center;"></div>
                     <button type="submit" id="btn-submit-login" class="btn btn-primary" style="width: 100%; justify-content: center; height: 42px;">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i> Войти
+                    </button>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin: 12px 0 0; text-align: center;">
+                        Логин <strong>admin</strong>, пароль по умолчанию — <strong>Salomanov</strong>.
+                        Сменить его можно кнопкой с ключом в шапке панели.
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Change Modal -->
+    <div class="modal-overlay" id="password-modal">
+        <div class="modal-card" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-key"></i> Смена пароля</h3>
+                <button type="button" class="modal-close" id="btn-password-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px;">
+                    Пароль по умолчанию (Salomanov) знает любой, у кого есть доступ к этой странице.
+                    Смена пароля не обязательна, но после неё все сессии, включая текущую, будут закрыты.
+                </p>
+                <form id="password-form">
+                    <div class="input-group" style="margin-bottom: 12px;">
+                        <label for="old-password" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Текущий пароль</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-lock"></i>
+                            <input type="password" id="old-password" required autocomplete="current-password" style="width: 100%;">
+                        </div>
+                    </div>
+                    <div class="input-group" style="margin-bottom: 12px;">
+                        <label for="new-password" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Новый пароль (минимум 10 символов)</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-key"></i>
+                            <input type="password" id="new-password" required minlength="10" autocomplete="new-password" style="width: 100%;">
+                        </div>
+                    </div>
+                    <div class="input-group" style="margin-bottom: 15px;">
+                        <label for="confirm-password" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Повторите новый пароль</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-check"></i>
+                            <input type="password" id="confirm-password" required minlength="10" autocomplete="new-password" style="width: 100%;">
+                        </div>
+                    </div>
+                    <div id="password-error-msg" style="display: none; padding: 10px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; font-size: 13px; margin-bottom: 15px; text-align: center;"></div>
+                    <button type="submit" id="btn-submit-password" class="btn btn-primary" style="width: 100%; justify-content: center; height: 42px;">
+                        <i class="fa-solid fa-check"></i> Сохранить пароль
                     </button>
                 </form>
             </div>

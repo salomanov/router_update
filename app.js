@@ -149,8 +149,20 @@ async function apiRequest(endpoint, options = {}) {
     if (response.status === 401) {
         setToken("");
         updateAuthUI(false);
-        showLoginModal("Требуется авторизация (admin:Salomanov)");
+        showLoginModal("Требуется авторизация");
         throw new Error("Unauthorized (401)");
+    }
+
+    if (response.status === 403) {
+        // The generated password has not been changed yet
+        try {
+            const gate = await response.clone().json();
+            if (gate && gate.error === "password_change_required") {
+                showPasswordModal();
+            }
+        } catch (e) {
+            // ignore non-JSON 403
+        }
     }
 
     return response;
@@ -179,6 +191,11 @@ async function submitLogin(username, password) {
             updateAuthUI(true, data.username || username);
             logToConsole(`Успешная авторизация (${username})!`, "success");
             setConnectionState("online");
+            if (data.must_change_password) {
+                logToConsole("Пароль сгенерирован при установке — задайте свой.", "info");
+                showPasswordModal();
+                return true;
+            }
             startAutoRefresh();
             fetchRouterStatus(true);
             return true;
@@ -203,6 +220,69 @@ function handleLogout() {
     setConnectionState("offline");
     stopAutoRefresh();
     showLoginModal();
+}
+
+// --- Password change ---
+
+function showPasswordModal(errorText = "") {
+    const modal = document.getElementById("password-modal");
+    const errorEl = document.getElementById("password-error-msg");
+    const oldInput = document.getElementById("old-password");
+    const newInput = document.getElementById("new-password");
+    const confirmInput = document.getElementById("confirm-password");
+    if (oldInput) oldInput.value = "";
+    if (newInput) newInput.value = "";
+    if (confirmInput) confirmInput.value = "";
+    if (errorEl) {
+        errorEl.textContent = errorText;
+        errorEl.style.display = errorText ? "block" : "none";
+    }
+    if (modal) modal.classList.add("active");
+    if (oldInput) oldInput.focus();
+}
+
+function hidePasswordModal() {
+    const modal = document.getElementById("password-modal");
+    if (modal) modal.classList.remove("active");
+}
+
+async function submitPasswordChange() {
+    const oldInput = document.getElementById("old-password");
+    const newInput = document.getElementById("new-password");
+    const confirmInput = document.getElementById("confirm-password");
+    const oldPassword = oldInput ? oldInput.value : "";
+    const newPassword = newInput ? newInput.value : "";
+    const confirmPassword = confirmInput ? confirmInput.value : "";
+
+    if (newPassword.length < 10) {
+        showPasswordModal("Новый пароль должен быть не короче 10 символов");
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        showPasswordModal("Пароли не совпадают");
+        return;
+    }
+
+    try {
+        const resp = await apiRequest("/api/password", {
+            method: "POST",
+            body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            hidePasswordModal();
+            logToConsole("Пароль изменён. Войдите заново.", "success");
+            setToken("");
+            updateAuthUI(false);
+            setConnectionState("offline");
+            stopAutoRefresh();
+            showLoginModal("Пароль изменён — войдите с новым паролем");
+        } else {
+            showPasswordModal(data.error || "Не удалось изменить пароль");
+        }
+    } catch (e) {
+        showPasswordModal(`Сетевая ошибка: ${e.message}`);
+    }
 }
 
 // --- Tab Navigation ---
@@ -298,10 +378,15 @@ async function handleConnect() {
 
         const authResp = await apiRequest("/api/auth/check");
         if (authResp.ok) {
-            updateAuthUI(true, "admin");
+            const authData = await authResp.json().catch(() => ({}));
+            updateAuthUI(true, authData.username || "admin");
             setConnectionState("online");
-            startAutoRefresh();
-            fetchRouterStatus(true);
+            if (authData.must_change_password) {
+                showPasswordModal();
+            } else {
+                startAutoRefresh();
+                fetchRouterStatus(true);
+            }
             logToConsole("Успешно подключено к роутеру!", "success");
         }
     } catch (e) {
@@ -547,27 +632,28 @@ function renderServicesTable(services) {
         tdAvail.setAttribute("data-label", "В репозитории");
 
         let availVer = "--";
-        let isUpdate = false;
         let updateUrl = null;
 
-        if (upstreamReleases[svc.id] && upstreamReleases[svc.id].latest) {
-            availVer = upstreamReleases[svc.id].latest;
-            updateUrl = upstreamReleases[svc.id].url;
-            if (curVer !== "unknown" && curVer !== availVer && curVer.replace(/^v/, "") !== availVer.replace(/^v/, "")) {
-                isUpdate = true;
-            }
+        // The backend decides whether an update exists (it compares versions
+        // properly); the browser must not compare version strings itself.
+        if (svc.available_version) {
+            availVer = svc.available_version;
         }
-        
+        if (upstreamReleases[svc.id] && upstreamReleases[svc.id].latest) {
+            if (availVer === "--") availVer = upstreamReleases[svc.id].latest;
+            updateUrl = upstreamReleases[svc.id].url;
+        }
         if (availVer === "--" && svc.package) {
             const pkgKey = svc.package.split(" ")[0];
             if (lastOpkgVersionsData && lastOpkgVersionsData[pkgKey]) {
                 availVer = lastOpkgVersionsData[pkgKey];
-                if (curVer !== "unknown" && curVer !== availVer) {
-                    isUpdate = true;
-                }
             }
         }
-        tdAvail.innerHTML = isUpdate ? `<span class="badge badge-warning" title="Доступно обновление"><i class="fa-solid fa-arrow-up"></i> ${escapeHtml(availVer)}</span>` : `<span style="color:var(--text-secondary)">${escapeHtml(availVer)}</span>`;
+
+        const isUpdate = Boolean(svc.update_available);
+        tdAvail.innerHTML = isUpdate
+            ? `<span class="badge badge-warning" title="Доступно обновление"><i class="fa-solid fa-arrow-up"></i> ${escapeHtml(availVer)}</span>`
+            : `<span style="color:var(--text-secondary)">${escapeHtml(availVer)}</span>`;
 
         // Actions
         const tdActions = document.createElement("td");
@@ -588,7 +674,7 @@ function renderServicesTable(services) {
         }
 
         if (isUpdate) {
-            btnGroup.innerHTML += `<button class="btn btn-warning btn-xs update-btn" data-svc="${svc.id}" data-ver="${availVer}" data-url="${updateUrl || ""}" title="Обновить"><i class="fa-solid fa-cloud-arrow-down"></i></button>`;
+            btnGroup.innerHTML += `<button class="btn btn-warning btn-xs update-btn" data-svc="${escapeHtml(svc.id)}" data-ver="${escapeHtml(availVer)}" data-url="${escapeHtml(updateUrl || "")}" title="Обновить"><i class="fa-solid fa-cloud-arrow-down"></i></button>`;
         }
 
         if (svc.can_uninstall) {
@@ -649,8 +735,15 @@ function renderCatalogTable(catalog) {
         const tdAction = document.createElement("td");
         const btn = document.createElement("button");
         btn.className = "btn btn-primary btn-sm";
-        btn.innerHTML = `<i class="fa-solid fa-download"></i> Установить`;
-        btn.addEventListener("click", () => triggerCatalogInstall(item.id, item.install_cmd));
+        if (item.installable === false) {
+            btn.className = "btn btn-secondary btn-sm";
+            btn.disabled = true;
+            btn.title = "Для этого пакета нет установщика в каталоге";
+            btn.innerHTML = `<i class="fa-solid fa-ban"></i> Недоступно`;
+        } else {
+            btn.innerHTML = `<i class="fa-solid fa-download"></i> Установить`;
+            btn.addEventListener("click", () => triggerCatalogInstall(item.id));
+        }
         tdAction.appendChild(btn);
 
         tr.appendChild(tdName);
@@ -696,13 +789,14 @@ async function controlService(service, action) {
     }
 }
 
-async function triggerCatalogInstall(serviceId, customCmd) {
+async function triggerCatalogInstall(serviceId) {
     logToConsole(`Запуск установки ${serviceId}...`);
     pauseAutoRefresh(60000);
     try {
+        // The install command/URL is taken from the server-side catalog only.
         const resp = await apiRequest("/api/service", {
             method: "POST",
-            body: JSON.stringify({ service: serviceId, action: "install", install_cmd: customCmd })
+            body: JSON.stringify({ service: serviceId, action: "install" })
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
@@ -741,8 +835,96 @@ async function triggerUninstall(serviceId) {
     }
 }
 
-function triggerUpdate(service, version, url) {
-    pendingUpdate = { service, version, url };
+// --- Profile (desired state) actions ---
+
+async function checkProfile() {
+    logToConsole("Проверка профиля пакетов...");
+    pauseAutoRefresh(30000);
+    try {
+        const resp = await apiRequest("/api/plan");
+        const data = await resp.json();
+        if (!resp.ok) {
+            logToConsole(`Не удалось проверить профиль: ${data.error || resp.status}`, "error");
+            return;
+        }
+        const summary = data.summary || {};
+        if (data.in_sync) {
+            logToConsole("Профиль в порядке: всё установлено и обновлено.", "success");
+        } else {
+            if (summary.missing && summary.missing.length) {
+                logToConsole(`Не установлено: ${summary.missing.join(", ")}`, "error");
+            }
+            if (summary.outdated && summary.outdated.length) {
+                logToConsole(`Есть обновления: ${summary.outdated.join(", ")}`, "error");
+            }
+            logToConsole("Нажмите «Применить профиль», чтобы доставить недостающее.");
+        }
+        if (data.extra && data.extra.length) {
+            logToConsole(`Установлено вне профиля: ${data.extra.join(", ")}`);
+        }
+    } catch (e) {
+        logToConsole(`Сбой проверки профиля: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+async function applyProfile() {
+    if (!confirm("Доставить недостающие пакеты из профиля? Это может занять несколько минут.")) return;
+    logToConsole("Применение профиля...");
+    pauseAutoRefresh(600000);
+    try {
+        const resp = await apiRequest("/api/apply", { method: "POST", body: "{}" });
+        const data = await resp.json();
+        if (!resp.ok) {
+            logToConsole(`Ошибка применения профиля: ${data.error || resp.status}`, "error");
+            return;
+        }
+        (data.steps || []).forEach(step => {
+            logToConsole(`[${step.ok ? "OK" : "FAIL"}] ${step.step}: ${step.output || ""}`,
+                step.ok ? "info" : "error");
+        });
+        if (data.success) {
+            logToConsole("Профиль применён: всё на месте.", "success");
+        } else {
+            const rem = data.remaining || {};
+            logToConsole(`Осталось: ${(rem.missing || []).concat(rem.outdated || []).join(", ") || "ошибки установки"}`, "error");
+        }
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Сбой применения профиля: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+async function updateAll() {
+    if (!confirm("Обновить все установленные пакеты? Панель может быть недоступна несколько минут.")) return;
+    logToConsole("Обновление всех пакетов...");
+    pauseAutoRefresh(600000);
+    try {
+        const resp = await apiRequest("/api/update_all", { method: "POST", body: "{}" });
+        const data = await resp.json();
+        if (!resp.ok) {
+            logToConsole(`Ошибка обновления: ${data.error || resp.status}`, "error");
+            return;
+        }
+        (data.results || []).forEach(r => {
+            logToConsole(`${r.target}: ${r.state}${r.available ? " -> " + r.available : ""}`,
+                r.state === "error" ? "error" : "info");
+        });
+        const s = data.summary || {};
+        logToConsole(`Обновлено: ${s.updated || 0}, актуальных: ${s.up_to_date || 0}, ошибок: ${s.errors || 0}`,
+            s.errors ? "error" : "success");
+        await fetchRouterStatus(true);
+    } catch (e) {
+        logToConsole(`Сбой обновления: ${e.message}`, "error");
+    } finally {
+        resumeAutoRefresh();
+    }
+}
+
+function triggerUpdate(service, version, url) {    pendingUpdate = { service, version, url };
     const textEl = document.getElementById("confirm-modal-text");
     const detEl = document.getElementById("confirm-modal-details");
     if (textEl) textEl.textContent = `Обновить службу ${service} до версии ${version}?`;
@@ -840,6 +1022,27 @@ document.addEventListener("DOMContentLoaded", () => {
         btnOpkgUpdate.addEventListener("click", () => runManualCommand("opkg update"));
     }
 
+    // Profile actions: check / apply / update everything
+    const btnPlan = document.getElementById("btn-plan");
+    const btnApply = document.getElementById("btn-apply");
+    const btnUpdateAll = document.getElementById("btn-update-all");
+    if (btnPlan) btnPlan.addEventListener("click", checkProfile);
+    if (btnApply) btnApply.addEventListener("click", applyProfile);
+    if (btnUpdateAll) btnUpdateAll.addEventListener("click", updateAll);
+
+    // Password change
+    const passwordForm = document.getElementById("password-form");
+    const btnChangePassword = document.getElementById("btn-change-password");
+    if (btnChangePassword) btnChangePassword.addEventListener("click", () => showPasswordModal());
+    const btnPasswordClose = document.getElementById("btn-password-close");
+    if (btnPasswordClose) btnPasswordClose.addEventListener("click", hidePasswordModal);
+    if (passwordForm) {
+        passwordForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            submitPasswordChange();
+        });
+    }
+
     // Quick command buttons
     document.querySelectorAll(".quick-cmd-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -913,7 +1116,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (getToken()) {
         handleConnect();
     } else {
-        // Show login modal on initial load so user can enter admin / Salomanov
         showLoginModal();
     }
 });
