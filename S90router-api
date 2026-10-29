@@ -6,37 +6,67 @@ PIDFILE="/opt/var/run/router-api.pid"
 PYTHON="/opt/bin/python3"
 LOGFILE="/opt/var/log/router_api.log"
 
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE" 2>/dev/null)
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+wait_for_port() {
+    # Wait until the API port is bound (or the process died), max ~5s
+    i=0
+    while [ $i -lt 10 ]; do
+        if ! is_running; then
+            return 1
+        fi
+        if netstat -ltn 2>/dev/null | grep -q ':8089 '; then
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 0.5
+    done
+    return 0
+}
+
 start() {
-    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+    if is_running; then
         echo "Router API is already running."
         return 0
     fi
-    mkdir -p /opt/var/run /opt/var/log
+    mkdir -p /opt/var/run /opt/var/log /opt/etc/grouter
     echo -n "Starting Router API... "
     if [ ! -x "$PYTHON" ]; then
         PYTHON=$(which python3 2>/dev/null || echo "python3")
     fi
-    $PYTHON "$PROG" >> "$LOGFILE" 2>&1 &
+    # The backend writes its own rotating log file; stdout/stderr go to the same
+    # file only for early tracebacks, so keep them out of the rotated stream.
+    "$PYTHON" "$PROG" >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
+
+    if ! wait_for_port; then
+        echo "FAILED (process exited). See $LOGFILE"
+        rm -f "$PIDFILE"
+        return 1
+    fi
     echo "done."
 }
 
 stop() {
-    if [ ! -f "$PIDFILE" ]; then
+    if ! is_running; then
+        rm -f "$PIDFILE"
         echo "Router API is not running."
         return 0
     fi
     echo -n "Stopping Router API... "
     PID=$(cat "$PIDFILE")
     kill "$PID" 2>/dev/null
-    # Wait for process to exit
-    for i in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5; do
         if ! kill -0 "$PID" 2>/dev/null; then
             break
         fi
         sleep 1
     done
-    # Force kill if still running
     if kill -0 "$PID" 2>/dev/null; then
         kill -9 "$PID" 2>/dev/null
     fi
@@ -45,7 +75,7 @@ stop() {
 }
 
 status() {
-    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+    if is_running; then
         echo "Router API is running (PID $(cat "$PIDFILE"))."
         return 0
     fi

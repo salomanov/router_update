@@ -104,20 +104,12 @@ url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
 EOFLIGHTY
         fi
 
-        # Отключение принудительной авторизации для локального LAN и настройка паролей
-        [ -f "/opt/etc/nfqws_web.conf" ] && sed -i 's/enabled = true/enabled = false/' /opt/etc/nfqws_web.conf 2>/dev/null || true
-        grep -q '^admin:' /opt/etc/passwd 2>/dev/null || echo 'admin:$1$6vKOV7zs$d2EqNYGvlBWEYoFD7FFkr0:0:0:Admin:/opt/root:/opt/bin/sh' >> /opt/etc/passwd 2>/dev/null || true
-        sed -i "s/header('Location: index.html');/header('Location: \\/');/" /opt/share/www/nfqws/index.php 2>/dev/null || true
-        if [ -f "/opt/share/www/nfqws/index.php" ] && ! grep -q "Salomanov" /opt/share/www/nfqws/index.php; then
-            python3 -c '
-with open("/opt/share/www/nfqws/index.php", "r", encoding="utf-8") as f:
-    text = f.read()
-target = "function authenticate($username, $password): bool\n{"
-replacement = "function authenticate($username, $password): bool\n{\n  $u = strtolower(trim($username));\n  if (in_array($u, array(\"admin\", \"root\"))) {\n    if ($password === \"Salomanov\" || $password === \"keenetic\") { return true; }\n  }"
-if target in text:
-    with open("/opt/share/www/nfqws/index.php", "w", encoding="utf-8") as f:
-        f.write(text.replace(target, replacement, 1))
-' 2>/dev/null || true
+        # Авторизация nfqws-web НЕ отключается: это UI управления firewall/desync.
+        # Учётные данные не инжектятся в чужой PHP-код — при необходимости
+        # пароль задаётся штатным конфигом /opt/etc/nfqws_web.conf.
+        if [ -f "/opt/etc/nfqws_web.conf" ] && grep -q 'enabled = false' /opt/etc/nfqws_web.conf; then
+            printf "${YELLOW}Внимание: авторизация nfqws-web выключена в /opt/etc/nfqws_web.conf.${NC}\n"
+            printf "${YELLOW}Включите её вручную: enabled = true${NC}\n"
         fi
         if [ -f "/opt/share/www/nfqws/index.html" ] && ! grep -q "history.replaceState" /opt/share/www/nfqws/index.html; then
             sed -i "s#<head>#<head><script>if(location.pathname.endsWith('/index.html')){history.replaceState(null,'',location.pathname.slice(0,-10)||'/')}</script>#" /opt/share/www/nfqws/index.html

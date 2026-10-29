@@ -27,6 +27,10 @@ fi
 
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
+TMP_DIR="/opt/tmp"
+mkdir -p "$TMP_DIR"
+
+FAILED=""
 
 run_step() {
     step_num="$1"
@@ -34,11 +38,35 @@ run_step() {
     step_url="$3"
 
     printf "\n${YELLOW}>>> [${step_num}/5] Установка ${step_name}...${NC}\n"
-    if curl -fsSL "${step_url}${CACHE_BUST}" | sh; then
-        printf "${GREEN}[OK] ${step_name} успешно установлен.${NC}\n"
-    else
-        printf "${RED}[ОШИБКА] Сбой при установке ${step_name}! Проверьте интернет-соединение.${NC}\n"
+
+    # Download first, verify, then run. Piping curl into sh hides a failed download:
+    # the pipeline status belongs to `sh`, and BusyBox ash has no pipefail.
+    step_file="$TMP_DIR/grouter-step-${step_num}.sh"
+    if ! curl -fsSL -o "$step_file" "${step_url}${CACHE_BUST}"; then
+        printf "${RED}[ОШИБКА] Не удалось скачать ${step_url}${NC}\n"
+        FAILED="$FAILED $step_num"
+        rm -f "$step_file"
+        return 1
     fi
+    if [ ! -s "$step_file" ]; then
+        printf "${RED}[ОШИБКА] Скачанный скрипт пуст: ${step_url}${NC}\n"
+        FAILED="$FAILED $step_num"
+        rm -f "$step_file"
+        return 1
+    fi
+
+    sh "$step_file"
+    rc=$?
+    rm -f "$step_file"
+
+    if [ $rc -eq 0 ]; then
+        printf "${GREEN}[OK] ${step_name} установлен.${NC}\n"
+        return 0
+    fi
+
+    printf "${RED}[ОШИБКА] Сбой при установке ${step_name} (код ${rc}).${NC}\n"
+    FAILED="$FAILED $step_num"
+    return 1
 }
 
 # 1. Панель управления + ttyd
@@ -56,12 +84,24 @@ run_step "4" "Tailscale (VPN Exit Node)" "${REPO_RAW}/install_tailscale.sh"
 # 5. Защищенный DoT/DoH DNS
 run_step "5" "DoT/DoH DNS" "${REPO_RAW}/setup_dns.sh"
 
+LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -o 'src [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
+
+if [ -n "$FAILED" ]; then
+    printf "\n${RED}==========================================================${NC}\n"
+    printf "${RED}      УСТАНОВКА ЗАВЕРШЕНА С ОШИБКАМИ (шаги:${FAILED} )      ${NC}\n"
+    printf "${RED}==========================================================${NC}\n\n"
+    exit 1
+fi
+
 printf "\n${GREEN}==========================================================${NC}\n"
 printf "${GREEN}      УСТАНОВКА ВСЕХ КОМПОНЕНТОВ ЗАВЕРШЕНА!               ${NC}\n"
 printf "${GREEN}==========================================================${NC}\n\n"
-printf "👉 Веб-панель GRouter: http://192.168.1.1:8089/\n"
-printf "👉 Веб-терминал PuTTY (ttyd): http://192.168.1.1:7681/\n"
-printf "👉 Авторизация панели и терминала: admin / Salomanov\n"
-printf "👉 Веб-интерфейс nfqws: http://192.168.1.1:90/\n"
+printf "👉 Веб-панель GRouter: http://%s:8089/\n" "$LAN_IP"
+printf "👉 Веб-терминал PuTTY (ttyd): http://%s:7681/ (после входа в панель)\n" "$LAN_IP"
+printf "👉 Веб-интерфейс nfqws: http://%s:90/\n" "$LAN_IP"
 printf "👉 YouTube 4K, Instagram и трекеры: активны через nfqws2\n"
 printf "👉 Прокси Telegram: запущен на порту 1443\n\n"
+printf "🔑 Вход в панель: admin / Salomanov (стандартный пароль).\n"
+printf "   Сменить его можно кнопкой с ключом в шапке панели.\n\n"

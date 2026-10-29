@@ -2,7 +2,10 @@
 
 # ==================================================
 # GRouter Control Panel Auto-Installer for Entware
-# Authenticated, secure management API and web dashboard
+# Authenticated management API + web dashboard
+#
+# No credentials are shipped with this script. The admin password is
+# generated on the router at first start and printed once below.
 # ==================================================
 
 GREEN='\033[0;32m'
@@ -45,87 +48,80 @@ printf "Проверка зависимостей...\n"
 opkg update > /dev/null 2>&1
 opkg install $DEPS > /dev/null 2>&1
 
-# Установка ttyd для полнофункционального веб-терминала PuTTY
+# Установка ttyd для веб-терминала PuTTY
 printf "Установка Web-терминала ttyd (PuTTY в браузере)...\n"
 opkg install --force-overwrite ttyd > /dev/null 2>&1 || true
 
 # 3. Подготовка директорий
-mkdir -p /opt/scripts /opt/etc/init.d /opt/share/router-control-center /opt/share/www /opt/var/run /opt/var/log
+mkdir -p /opt/scripts /opt/etc/init.d /opt/etc/grouter /opt/share/router-control-center \
+         /opt/share/www /opt/var/run /opt/var/log
 
 # 4. Скачивание актуальных файлов с GitHub
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
+fetch() {
+    # fetch <url> <destination>; fails loudly instead of leaving an empty file
+    if ! curl -fsSL -o "$2" "$1"; then
+        printf "${RED}Ошибка скачивания: %s${NC}\n" "$1"
+        rm -f "$2"
+        exit 1
+    fi
+    if [ ! -s "$2" ]; then
+        printf "${RED}Скачанный файл пуст: %s${NC}\n" "$1"
+        rm -f "$2"
+        exit 1
+    fi
+}
+
 printf "Скачивание бэкенда API и автозапуска...\n"
-curl -fsSL -o /opt/scripts/router_api.py "${REPO_RAW}/router_api.py${CACHE_BUST}" || { printf "${RED}Ошибка скачивания router_api.py${NC}\n"; exit 1; }
-curl -fsSL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}" 2>/dev/null || true
-curl -fsSL -o /opt/etc/init.d/S90router-api "${REPO_RAW}/S90router-api${CACHE_BUST}" || { printf "${RED}Ошибка скачивания S90router-api${NC}\n"; exit 1; }
+fetch "${REPO_RAW}/router_api.py${CACHE_BUST}" /opt/scripts/router_api.py
+curl -fsSL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}" 2>/dev/null \
+    || printf "${YELLOW}Внимание: opkg_update.py не скачан, opkg update будет обычным.${NC}\n"
+fetch "${REPO_RAW}/S90router-api${CACHE_BUST}" /opt/etc/init.d/S90router-api
 
 printf "Скачивание веб-интерфейса GRouter...\n"
-curl -fsSL -o /opt/share/router-control-center/index.html "${REPO_RAW}/index.html${CACHE_BUST}" || { printf "${RED}Ошибка скачивания index.html${NC}\n"; exit 1; }
-curl -fsSL -o /opt/share/router-control-center/style.css "${REPO_RAW}/style.css${CACHE_BUST}" || { printf "${RED}Ошибка скачивания style.css${NC}\n"; exit 1; }
-curl -fsSL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js${CACHE_BUST}" || { printf "${RED}Ошибка скачивания app.js${NC}\n"; exit 1; }
+fetch "${REPO_RAW}/index.html${CACHE_BUST}" /opt/share/router-control-center/index.html
+fetch "${REPO_RAW}/style.css${CACHE_BUST}" /opt/share/router-control-center/style.css
+fetch "${REPO_RAW}/app.js${CACHE_BUST}" /opt/share/router-control-center/app.js
+
+printf "Скачивание профиля пакетов и CLI...\n"
+curl -fsSL -o /opt/etc/grouter/profile.json "${REPO_RAW}/configs/profile.json${CACHE_BUST}" 2>/dev/null \
+    || printf "${YELLOW}Внимание: configs/profile.json не скачан — 'grouter plan' покажет пустой профиль.${NC}\n"
+fetch "${REPO_RAW}/grouter_cli.py${CACHE_BUST}" /opt/scripts/grouter_cli.py
 
 # Очищаем /opt/share/www от посторонних файлов, чтобы исключить конфликты с nfqws web на порту 90
 rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null || true
 
-# 5. Настройка службы ttyd (интерактивная аутентификация в iframe)
-cat << 'EOFTSH' > /opt/scripts/ttyd_shell.sh
-#!/opt/bin/sh
-export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
-export TERM=xterm-256color
-export HOME=/root
+# 5. ttyd: только loopback. Публичный порт 7681 обслуживает router_api.py,
+# который проверяет сессию панели (иначе это был бы открытый root-shell).
+TTYD_SHELL="/opt/bin/sh"
+[ -x "$TTYD_SHELL" ] || TTYD_SHELL="/bin/sh"
 
-printf "\033[1;36m==================================================\033[0m\n"
-printf "\033[1;36m       GRouter Control Center - Web PuTTY         \033[0m\n"
-printf "\033[1;36m==================================================\033[0m\n"
-printf "Для входа в консоль роутера введите пароль (Salomanov):\n\n"
-
-tries=0
-while [ $tries -lt 3 ]; do
-    printf "Пароль: "
-    stty -echo 2>/dev/null
-    read PASS
-    stty echo 2>/dev/null
-    printf "\n"
-    if [ "$PASS" = "Salomanov" ] || [ "$PASS" = "keenetic" ]; then
-        printf "\033[0;32m[OK] Доступ разрешен. Запуск root shell...\033[0m\n\n"
-        cd /root 2>/dev/null || cd /opt
-        exec /opt/bin/sh
-    else
-        printf "\033[0;31mНеверный пароль!\033[0m\n\n"
-        tries=$((tries + 1))
-    fi
-done
-
-printf "\033[0;31mПревышено число попыток входа.\033[0m\n"
-sleep 2
-exit 1
-EOFTSH
-chmod 755 /opt/scripts/ttyd_shell.sh
-
-cat << 'EOFTTYD' > /opt/etc/init.d/S96ttyd
+cat << EOFTTYD > /opt/etc/init.d/S96ttyd
 #!/bin/sh
 
 ENABLED=yes
 PROCS=ttyd
-ARGS="-W -p 7681 /bin/sh /opt/scripts/ttyd_shell.sh"
+ARGS="-W -i 127.0.0.1 -p 7682 ${TTYD_SHELL}"
 PREARGS=""
-DESC="Web Terminal (ttyd)"
+DESC="Web Terminal (ttyd, loopback only)"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 . /opt/etc/init.d/rc.func
 EOFTTYD
 chmod +x /opt/etc/init.d/S96ttyd
 
-# 5.1 Автоматическое исправление конфигурации lighttpd для nfqws-web (порт 90)
+# Старый скрипт с паролем в открытом виде больше не нужен
+rm -f /opt/scripts/ttyd_shell.sh 2>/dev/null || true
+
+# 5.1 Конфигурация lighttpd для nfqws-web (порт 90).
+# Аутентификация nfqws-web НЕ отключается: это UI управления firewall/desync.
 if [ -d "/opt/etc/lighttpd" ]; then
     mkdir -p /opt/etc/lighttpd/conf.d
     rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null || true
     cat << 'EOFLIGHT' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
 server.port := 90
-server.username := ""
-server.groupname := ""
 
 cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
 static-file.exclude-extensions += ( ".php" )
@@ -135,36 +131,63 @@ server.error-handler-404 = "/nfqws/index.html"
 url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
 EOFLIGHT
 
-    # Разрешаем прямой доступ в локальной сети и добавляем поддержку учетных данных admin/root
-    [ -f "/opt/etc/nfqws_web.conf" ] && sed -i 's/enabled = true/enabled = false/' /opt/etc/nfqws_web.conf 2>/dev/null || true
-    grep -q '^admin:' /opt/etc/passwd 2>/dev/null || echo 'admin:$1$6vKOV7zs$d2EqNYGvlBWEYoFD7FFkr0:0:0:Admin:/opt/root:/opt/bin/sh' >> /opt/etc/passwd 2>/dev/null || true
-    if [ -f "/opt/share/www/nfqws/index.php" ] && ! grep -q "Salomanov" /opt/share/www/nfqws/index.php; then
-        python3 -c '
-with open("/opt/share/www/nfqws/index.php", "r", encoding="utf-8") as f:
-    text = f.read()
-target = "function authenticate($username, $password): bool\n{"
-replacement = "function authenticate($username, $password): bool\n{\n  $u = strtolower(trim($username));\n  if (in_array($u, array(\"admin\", \"root\"))) {\n    if ($password === \"Salomanov\" || $password === \"keenetic\") { return true; }\n  }"
-if target in text:
-    with open("/opt/share/www/nfqws/index.php", "w", encoding="utf-8") as f:
-        f.write(text.replace(target, replacement, 1))
-' 2>/dev/null || true
-    fi
-
     [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart > /dev/null 2>&1 || true
 fi
 
-# 6. Права и запуск
+# 6. CLI /opt/bin/grouter -> plan | apply | status | update-all
+cat << 'EOFCLI' > /opt/bin/grouter
+#!/bin/sh
+exec /opt/bin/python3 /opt/scripts/grouter_cli.py "$@"
+EOFCLI
+chmod 755 /opt/bin/grouter
+
+# 7. Права и запуск
 chmod 755 /opt/scripts/router_api.py
+chmod 755 /opt/scripts/grouter_cli.py
 chmod 755 /opt/scripts/opkg_update.py 2>/dev/null || true
 chmod 755 /opt/etc/init.d/S90router-api
+
+# 7.1 Необязательные параметры пароля. Читаются только при ПЕРВОМ старте
+# (иначе в /opt остался бы открытый пароль рядом с готовым хэшем).
+if [ ! -f "/opt/etc/router-api.auth" ]; then
+    if [ -n "$GROUTER_DEFAULT_PASSWORD" ]; then
+        umask 077
+        printf '%s\n' "$GROUTER_DEFAULT_PASSWORD" > /opt/etc/grouter/default_password
+        umask 022
+        printf "Задан свой пароль администратора (GROUTER_DEFAULT_PASSWORD).\n"
+    fi
+    if [ -n "$GROUTER_RANDOM_PASSWORD" ]; then
+        : > /opt/etc/grouter/random_password
+        printf "Включён режим одноразового случайного пароля.\n"
+    fi
+fi
 
 printf "Запуск служб...\n"
 /opt/etc/init.d/S96ttyd restart > /dev/null 2>&1 || true
 /opt/etc/init.d/S90router-api restart
 
+# 8. Пароль: стандартный сохраняется при первом старте, одноразовый — только в secure-режиме
+sleep 2
+INITIAL_PW_FILE="/opt/etc/grouter/initial_password"
+LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -o 'src [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
+
 printf "\n${GREEN}==========================================================${NC}\n"
-printf "${GREEN}Установка GRouter успешно завершена!${NC}\n"
-printf "Панель управления: ${GREEN}http://192.168.1.1:8089/${NC}\n"
-printf "Веб-терминал PuTTY: ${GREEN}http://192.168.1.1:7681/${NC}\n"
-printf "Авторизация: ${YELLOW}admin${NC} / ${YELLOW}Salomanov${NC}\n"
+printf "${GREEN}Установка GRouter завершена!${NC}\n"
+printf "Панель управления: ${GREEN}http://%s:8089/${NC}\n" "$LAN_IP"
+printf "Веб-терминал PuTTY: ${GREEN}http://%s:7681/${NC} (только после входа в панель)\n" "$LAN_IP"
+printf "Логин: ${YELLOW}admin${NC}\n"
+
+if [ -s "$INITIAL_PW_FILE" ]; then
+    printf "Одноразовый пароль: ${YELLOW}%s${NC}\n" "$(cat "$INITIAL_PW_FILE")"
+    printf "${YELLOW}Смените его при первом входе — до смены панель работает в ограниченном режиме.${NC}\n"
+else
+    printf "Пароль: ${YELLOW}Salomanov${NC} (стандартный, менять не обязательно)\n"
+    printf "Сменить можно кнопкой с ключом в шапке панели.\n"
+    printf "${YELLOW}Если пароль уже был изменён ранее и забыт: удалить${NC}\n"
+    printf "${YELLOW}/opt/etc/router-api.auth и перезапустить S90router-api.${NC}\n"
+fi
+
+printf "\nПрофиль пакетов: ${GREEN}grouter plan${NC} (проверить) / ${GREEN}grouter apply${NC} (доставить)\n"
 printf "${GREEN}==========================================================${NC}\n\n"
