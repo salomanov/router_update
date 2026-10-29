@@ -1,0 +1,21 @@
+{
+  "name": "home-router",
+  "packages": [
+    "curl",
+    "ttyd",
+    "nfqws2-keenetic",
+    "tg-ws-proxy",
+    "tailscale"
+  ],
+  "services": [
+    "ttyd",
+    "nfqws2",
+    "tg-ws-proxy",
+    "tailscale"
+  ],
+  "repo_conf": [
+    "entware",
+    "nfqws2-keenetic",
+    "feedly"
+  ]
+}
