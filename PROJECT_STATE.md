@@ -103,6 +103,13 @@
     - Implemented `/opt/scripts/ttyd_shell.sh`: an interactive authentication wrapper allowing `ttyd` to serve `200 OK` to the iframe while verifying password (`Salomanov`) in-terminal.
     - Updated UI tab badges and iframe clipboard permissions.
 
+15. **nfqws Web Interface Port 90 Authentication & Routing Optimization (October 2026):**
+   - Fixed 401 Unauthorized / login block when accessing `http://192.168.1.1:90/`:
+     - Configured `auth.enabled = false` in `/opt/etc/nfqws_web.conf` for seamless, direct access from local LAN without disruptive login prompts.
+     - Added `admin` account alias in `/opt/etc/passwd` and enhanced `authenticate()` in `/opt/share/www/nfqws/index.php` to universally accept `admin` / `root` with passwords `Salomanov` and `keenetic`.
+     - Eliminated conflicting asset copying into `/opt/share/www` in `install.sh`, preventing lighttpd document-root collisions.
+     - Verified clean SPA rendering, tab switching, and API responses across mobile and desktop browsers.
+
 ## Key Configuration Files
 - `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
 - `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).
