@@ -1,0 +1,5 @@
+# Shell scripts are executed on the router by BusyBox ash: CRLF breaks them.
+# Everything else (Python/JS/HTML/MD) is served or read as bytes, so it is left alone.
+*.sh text eol=lf
+S90router-api text eol=lf
+S96ttyd text eol=lf
