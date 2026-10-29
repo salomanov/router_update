@@ -737,6 +737,7 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
         content_type = content_types.get(ext, "text/plain")
 
         search_paths = [
+            os.path.join("/opt/share/router-control-center", filename),
             os.path.join("/opt/share/www", filename),
             os.path.join(os.getcwd(), filename),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
