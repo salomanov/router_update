@@ -19,3 +19,6 @@ initial_password
 
 # Security review documents (contain details of previously leaked credentials)
 AGENT_RECOMMENDATIONS.md
+
+ses_*.json
+*.sessions
