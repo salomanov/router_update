@@ -91,8 +91,8 @@
      - Added automatic OPKG cache validation in `/api/exec`: if package lists in `/opt/var/opkg-lists` are missing/empty on fresh routers, the backend auto-fetches them before running `opkg install`.
      - Added automatic cleanup of stale `/opt/tmp/opkg.lock` files before executing `opkg` commands.
    - **nfqws Web Interface Automation:**
-     - Updated `install_nfqws2.sh` to install both `nfqws2-keenetic` and `nfqws-keenetic-web` (providing the official web UI on port 8088 / 90 via lighttpd and php8-cgi).
-     - Added automatic restart of `lighttpd` and printed direct web interface URL `http://192.168.1.1:8088/` upon completion.
+     - Updated `install_nfqws2.sh` to install both `nfqws2-keenetic` and `nfqws-keenetic-web` (providing the official web UI on port 90 via lighttpd and php8-cgi).
+     - Added automatic restart of `lighttpd` and printed direct web interface URL `http://192.168.1.1:90/` upon completion.
      - Updated `install_all.sh` to display the nfqws web interface link alongside GRouter.
 
 11. **Accurate Package Version Resolution (October 2026):**

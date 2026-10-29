@@ -127,7 +127,7 @@ KNOWN_SERVICES = {
     },
     "nfqws-web": {
         "name": "Веб-интерфейс nfqws (Web UI)",
-        "desc": "Официальная веб-панель управления nfqws / zapret (порт 8088 / 90)",
+        "desc": "Официальная веб-панель управления nfqws / zapret (порт 90)",
         "script_prefixes": ["S80lighttpd"],
         "proc": "lighttpd",
         "package": "nfqws-keenetic-web",
@@ -135,7 +135,7 @@ KNOWN_SERVICES = {
         "install_cmd": "/opt/bin/opkg install nfqws-keenetic-web lighttpd lighttpd-mod-redirect lighttpd-mod-rewrite lighttpd-mod-setenv lighttpd-mod-cgi php8-cgi",
         "uninstall_pkg": "nfqws-keenetic-web",
         "is_core": False,
-        "port": 8088
+        "port": 90
     },
     "3proxy": {
         "name": "3proxy",

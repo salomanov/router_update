@@ -90,11 +90,11 @@ if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
         if [ -f "/opt/etc/lighttpd/conf.d/80-nfqws.conf" ]; then
             rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null
             cat << 'EOFLIGHTY' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
-server.port := 8088
+server.port := 90
 server.username := ""
 server.groupname := ""
 
-$HTTP["host"] =~ "^(.+):8088$" {
+$HTTP["host"] =~ "^(.+):90$" {
     url.redirect = ( "^/nfqws/" => "http://%1:90" )
     url.redirect-code = 301
 }

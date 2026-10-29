@@ -24,7 +24,7 @@ const SERVICE_METADATA = {
     "nfqws2": { name: "nfqws2 (zapret)", desc: "Обход систем фильтрации DPI / zapret", git: "https://github.com/bol-van/zapret" },
     "tg-ws-proxy": { name: "tg-ws-proxy", desc: "Прокси Telegram MTProto WebSockets (Go)", git: "https://github.com/spatiumstas/tg-ws-proxy-go" },
     "mosquitto": { name: "Mosquitto MQTT", desc: "Брокер сообщений для умного дома", git: "https://github.com/eclipse-mosquitto/mosquitto" },
-    "nfqws-web": { name: "Веб-интерфейс nfqws (Web UI)", desc: "Официальная веб-панель nfqws / zapret (порт 8088 / 90)", git: "https://github.com/nfqws/nfqws-keenetic-web", port: 8088 },
+    "nfqws-web": { name: "Веб-интерфейс nfqws (Web UI)", desc: "Официальная веб-панель nfqws / zapret (порт 90)", git: "https://github.com/nfqws/nfqws-keenetic-web", port: 90 },
     "tuya-mqtt-calibrator": { name: "Tuya MQTT Calibrator", desc: "Калибратор Tuya датчиков" },
     "usque": { name: "Usque SOCKS5", desc: "SOCKS5 прокси-клиент", git: "https://github.com/Diniboy1123/usque" },
     "tailscale": { name: "Tailscale VPN", desc: "Mesh VPN / Exit Node для удаленного доступа", git: "https://github.com/tailscale/tailscale" },
