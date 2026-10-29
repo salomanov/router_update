@@ -14,7 +14,8 @@ is_running() {
 }
 
 wait_for_port() {
-    # Wait until the API port is bound (or the process died), max ~5s
+    # Wait until the API port is bound (or the process died), max ~10s.
+    # Integer sleep only: BusyBox sleep on KeeneticOS rejects "0.5".
     i=0
     while [ $i -lt 10 ]; do
         if ! is_running; then
@@ -24,7 +25,7 @@ wait_for_port() {
             return 0
         fi
         i=$((i + 1))
-        sleep 0.5
+        sleep 1
     done
     return 0
 }
