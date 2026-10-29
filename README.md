@@ -34,14 +34,76 @@
 Если вы хотите сразу получить настроенный роутер «под ключ» со всеми сервисами:
 
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_all.sh | sh
+curl -fsSL -o /tmp/grouter-install.sh https://raw.githubusercontent.com/salomanov/router_update/main/install_all.sh \
+  && sh /tmp/grouter-install.sh
 ```
+
+> Скрипт скачивается в файл и только потом запускается. Это важно: при пайпе `curl …` в `sh`
+> ошибка загрузки (404, обрыв связи) выглядит как успешная установка, потому что код
+> возврата берётся у `sh`, а в BusyBox ash нет `pipefail`.
 
 ### Что сделает скрипт автоматически:
 1. Установит и запустит **веб-панель управления** (`http://192.168.1.1:8089/`).
 2. Подключит репозиторий и установит **nfqws2** с готовыми оптимизированными профилями desync, базой из 360+ хостов (`user.list`), правилами для YouTube, Instagram, трекеров и исключениями для Bambu Lab.
 3. Установит и запустит собственный **Telegram Proxy** (`tg-ws-proxy` на порту 1443).
 4. Установит **Tailscale**, настроит драйвер TUN, автозапуск, NAT и фаервол с защитой от QUIC-зависаний и MTU-дропов. В конце скрипт выведет ссылку для привязки роутера к вашему аккаунту Tailscale.
+5. Настроит защищенный DoT/DoH DNS.
+
+Если какой-то шаг упал, установщик сообщит об этом, перечислит упавшие шаги и завершится
+с ненулевым кодом — итоговое «всё установлено» в этом случае не печатается.
+
+---
+
+## Пароль администратора
+
+* Логин: `admin`.
+* Пароль по умолчанию: **`Salomanov`** — стандартный, менять его не обязательно.
+  Панель после первого входа работает в полном режиме.
+* Смена пароля — кнопка с ключом в шапке панели (минимум 10 символов). После смены все сессии,
+  включая текущую, закрываются. Отдельного «принудительного» шага нет.
+* Если пароль забыт: удалите `/opt/etc/router-api.auth` и перезапустите
+  `/opt/etc/init.d/S90router-api` — вернётся стандартный `Salomanov`.
+
+Хотите пароль посерьёзнее — задайте свой при установке:
+
+```sh
+GROUTER_DEFAULT_PASSWORD='SolnechnyDom-2026' sh /tmp/grouter-install.sh
+```
+
+Или включите режим одноразового случайного пароля (он печатается установщиком один раз и требует
+смены при первом входе):
+
+```sh
+GROUTER_RANDOM_PASSWORD=1 sh /tmp/grouter-install.sh
+```
+
+Пароль хранится только как PBKDF2-хэш в `/opt/etc/router-api.auth` (0600). Никогда не публикуйте
+`router-api.auth`, `router-api.sessions` и `initial_password`.
+
+> **Почему стандартный пароль — это риск.** Он записан в этом репозитории, значит его знает любой,
+> кто видит репозиторий и имеет доступ к вашему LAN. Для домашней сети за роутером это приемлемо,
+> но не пробрасывайте порт 8089 в интернет и не включайте KeenDNS-доступ к панели без смены пароля.
+> История git дополнительно содержит старые коммиты с этим паролем — перепишите историю
+> (`git filter-repo`) или держите репозиторий приватным.
+
+---
+
+## Профиль пакетов: «мой набор» на новом роутере
+
+Набор пакетов описан в `configs/profile.json` (пакеты, службы, репозитории). На роутере
+доступна команда `grouter`:
+
+```sh
+grouter plan        # что не установлено / устарело (ничего не меняет)
+grouter apply       # доставить недостающее, идемпотентно
+grouter status      # службы, версии, доступные обновления
+grouter update-all  # обновить все пакеты, отчёт по каждому
+```
+
+То же самое есть в панели: кнопки **«Проверить профиль»**, **«Применить профиль»**,
+**«Обновить всё»**.
+
+`plan` завершается с кодом `2`, если профиль расходится с роутером — удобно для cron/скриптов.
 
 ---
 
@@ -51,14 +113,15 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_
 
 ### 1. Только веб-панель управления (GRouter Control Panel)
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install.sh | sh
+curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router_update/main/install.sh \
+  && sh /tmp/grouter.sh
 ```
 * После установки панель доступна в локальной сети: **`http://192.168.1.1:8089/`**.
 * Дополнительно веб-панель можно захостить на GitHub Pages (см. раздел ниже).
 
 ### 2. Только обход блокировок (nfqws2)
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_nfqws2.sh | sh
+curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router_update/main/install_nfqws2.sh && sh /tmp/grouter.sh
 ```
 * Загружает проверенные desync-стратегии: `fake:blob=stun`, `fake:blob=tls_google`, `fakedsplit`.
 * Включает списки хостов для YouTube, Meta/Instagram, NNM-Club, FastPic, Rutracker, Discord.
@@ -66,7 +129,7 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_
 
 ### 3. Только Tailscale (VPN Exit Node + удаленный доступ)
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_tailscale.sh | sh
+curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router_update/main/install_tailscale.sh && sh /tmp/grouter.sh
 ```
 * Включает IP forwarding и TUN интерфейс.
 * Настраивает правила iptables:
@@ -77,14 +140,14 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_
 
 ### 4. Только Telegram WebSocket Proxy
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/install_tg_proxy.sh | sh
+curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router_update/main/install_tg_proxy.sh && sh /tmp/grouter.sh
 ```
 * Запускает прокси на порту 1443.
 * Ссылка для подключения генерируется автоматически и видна в веб-панели управления.
 
 ### 5. Только защищенный DoT/DoH DNS
 ```sh
-curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/setup_dns.sh | sh
+curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router_update/main/setup_dns.sh && sh /tmp/grouter.sh
 ```
 * Включает защиту от DNS Rebinding в Keenetic.
 * Настраивает защищенные апстримы DoT/DoH (`dns.malw.link`, `dns.geohide.ru`, `dns.dns-ai.ru`), обходящие блокировки и подмену DNS операторами связи.
@@ -138,9 +201,12 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/setup_dn
 ├── install_tailscale.sh      # Установщик Tailscale VPN Exit Node с защитой фаервола
 ├── install_tg_proxy.sh       # Установщик Telegram WebSocket Proxy
 ├── router_api.py             # Бэкенд API-сервера панели на Python 3
+├── grouter_cli.py            # CLI: grouter plan | apply | status | update-all
+├── opkg_update.py            # Устойчивое обновление списков OPKG (чанками)
 ├── S90router-api             # Init-скрипт автозапуска API-сервера
 ├── index.html, style.css, app.js # Статический фронтенд веб-панели
 └── configs/                  # Резервная копия эталонных конфигураций
+    ├── profile.json          # «Мой набор»: пакеты, службы, репозитории
     ├── nfqws2.conf           # Конфигурация desync-профилей nfqws2
     ├── lists/                # user.list (360+ доменов), exclude.list, ipset
     ├── blobs/                # Бинарные дампы TLS ClientHello, STUN, Discord UDP
@@ -154,10 +220,18 @@ curl -sL https://raw.githubusercontent.com/salomanov/router_update/main/setup_dn
 
 | Действие | Команда |
 | :--- | :--- |
-| Статус всех сервисов | `http://192.168.1.1:8089/api/status` |
+| Статус всех сервисов | `grouter status` |
+| Проверить профиль | `grouter plan` |
+| Доставить недостающее | `grouter apply` |
+| Обновить всё | `grouter update-all` |
 | Перезапуск панели API | `/opt/etc/init.d/S90router-api restart` |
 | Перезапуск nfqws2 | `/opt/etc/init.d/S51nfqws2 restart` |
 | Просмотр лога nfqws2 | `tail -f /opt/var/log/nfqws2.log` |
 | Статус Tailscale | `/opt/bin/tailscale status` |
 | Ссылка на прокси Telegram | `/opt/etc/init.d/S99tg-ws-proxy status` |
 | Свободная память и диск | `free -m; df -h /opt` |
+
+Порт `7681` (веб-терминал) обслуживает сама панель: `ttyd` слушает только `127.0.0.1:7682`,
+а прокси проверяет сессию. Без входа в панель терминал отвечает `401`. Прямого доступа
+к root-shell по отдельному порту больше нет.
+

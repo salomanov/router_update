@@ -2,125 +2,126 @@
 
 ## Project Information
 - **Project Name:** Router Update & Bypass System (Xiaomi Mi WiFi Router 3G v1)
-- **Primary Goal:** High-performance, resilient DPI bypass for Russian ISPs (ТСПУ / РКН), Telegram Proxy, Tailscale Exit Node, and Web Control Panel.
 - **Repository:** `https://github.com/salomanov/router_update.git`
 
+## Product Goals (не менять без владельца)
+1. Развернуть «свой набор» пакетов на новом роутере **одной командой**.
+2. Легко **проверять и обновлять** установленное (список, версии, «есть обновление», обновить всё).
+3. **Выполнять команды на роутере из браузера** так же, как в PuTTY.
+
+Всё остальное (красивые карточки, GitHub-релизы, второстепенные сервисы) — вторично.
+Новые функции добавляются только если приближают эти три сценария.
+
+## Non-goals
+- Мультитенантность, роли, несколько пользователей панели.
+- Публичный доступ к root-shell без аутентификации.
+- Хранение любых паролей/токенов в репозитории.
+
 ## Architecture & Environment
-- **Device:** Xiaomi Router 3G v1 (R3Gv1)
-- **Firmware:** KeeneticOS (modded Keenetic Peak KN-2410 / KN-1810) on MIPS architecture
-- **Storage:** Entware installed on `/opt`
-- **DPI Bypass Engine:** `nfqws2-keenetic` 1.3.1 (LUA zapret engine)
-- **Router Web API:** Python service running on port 8089 (`http://192.168.1.1:8089/api/exec`)
-- **Remote Gateway:** SSH on port 222 (`root:<router_password>`)
+- **Device:** Xiaomi Router 3G v1 (R3Gv1), MIPS, 128 MB RAM
+- **Firmware:** KeeneticOS (KN-2410 / KN-1810 mod), Entware on `/opt`
+- **Shell:** BusyBox ash (нет `pipefail`, нет bash-массивов)
+- **DPI Bypass Engine:** `nfqws2-keenetic` (LUA zapret engine)
+- **Router Web API:** Python 3 (`python3-light`) on port **8089**
+- **Web terminal:** `ttyd` on `127.0.0.1:7682`, public port **7681** served by an
+  authenticated TCP proxy inside `router_api.py`
+- **CLI:** `/opt/bin/grouter` (`plan | apply | status | update-all`)
 
-## Current Working State (as of October 2026)
-1. **YouTube & Media Streaming:**
-   - 4K/8K 60fps YouTube streaming fully functional on Smart TV, PC, and Mobile.
-   - Global QUIC block (`020-block-quic.sh`) drops UDP 443 to force TCP fallback with desync.
-2. **Instagram & Meta:**
-   - CDN and GraphQL hosts included in `user.list`.
-   - Direct connection and Tailscale routing configured.
-3. **Bambu Lab 3D Printing:**
-   - Bambu AWS S3 storage (`bambulab-prod-oss-*.s3.amazonaws.com`) safely preserved in `exclude.list`.
-4. **Webcam & Rip Video Streaming (livecamrips.to, webcamshow.cc, webmodel.cam):**
-   - Added all 4 streaming networks, player domains, and video CDNs to `user.list` (412 domains total).
-   - Fast chunk / HLS download verified across all providers.
-5. **Entware OPKG Updates & Web Panel API (Fixed):**
-   - **Root Cause of HTTP 500:**
-     - `bin.entware.net` (`107.189.14.230`, BuyVM Luxembourg) single-stream HTTP transfers are throttled/dropped by Russian ISP ТСПУ/DPI after exactly 33,054 bytes.
-     - `opkg update` using standard single-stream `wget` stalled, hitting the hardcoded 30s timeout in `router_api.py`, returning HTTP 500 and leaving orphaned `wget`/`opkg` processes holding `/opt/tmp/opkg.lock`.
-     - `router_api.py` was single-threaded, freezing background status checks during any long execution.
-     - Status checks polled every 5s ran 12 subprocess opkg calls repeatedly, generating CPU spikes.
-   - **Remediation:**
-     - Developed `/opt/scripts/opkg_update.py`: downloads `Packages.gz` in 30KB slices using HTTP Range requests (377 KB complete in ~7 seconds with 100% reliability and gzip verification).
-     - Added `ThreadingMixIn` to `SafeHTTPServer` in `router_api.py` for concurrent request handling.
-     - Implemented in-memory TTL caching (60s for installed versions, 300s for repo versions) with cache invalidation on package actions.
-     - Added configurable timeouts (default 180s), graceful timeout recovery, and automatic lock cleanup.
-     - Updated `app.js` with 180s timeout headers and verified full functionality via web UI.
-6. **Dynamic Modular Architecture & Application Catalog (October 2026):**
-   - Replaced the hardcoded 9-service list with dynamic auto-discovery (`discover_services()` in `router_api.py`) scanning `/opt/etc/init.d/S*`.
-   - Added Tab navigation in Web Control Panel:
-     - **«Установленные службы»**: Shows only services actually present and configured on this specific router (running/stopped status, version, upgrade buttons, uninstall button).
-     - **«Каталог приложений»**: Shows all uninstalled optional packages (AdGuard Home, Transmission, Stubby, iPerf3, Mosquitto, etc.) with 1-click «Установить» button executing `/api/exec`.
-   - Any router now gets a clean, uncluttered interface showing only its actual services without red "Остановлен" badges for missing optional software.
-7. **Tuya MQTT Calibrator Status & Locations:**
-   - **Primary Project Repository:** `E:\Projects\tuya_mqtt_calibrator` (GitHub: `https://github.com/salomanov/MQTT.git`).
-   - **Production router daemon:** Running from `/opt/scripts/tuya_mqtt_calibrator.py` managed by `/opt/etc/init.d/S99tuya-mqtt-calibrator`.
-8. **Tuya MQTT Calibrator Enhanced Edition (October 2026):**
-   - Upgraded `tinytuya` on the router to version **1.20.0**.
-   - Enhanced `tuya_mqtt_calibrator.py`:
-     - Auto-reconnect to Mosquitto broker on router boot (`retry_first_connection=True`, `connect_async`).
-     - Config extraction: loads `config.json` or `/opt/etc/tuya_mqtt_calibrator.json` with fallback.
-     - Added read-only query topic `tuya/calibrate/get` for querying status without modifying calibration.
-     - Status published with `retain=True` and LWT availability `tuya/calibrate/availability` (`online`/`offline`).
-     - Standardized logging to rotating file `/opt/var/log/tuya_mqtt_calibrator.log`.
-   - Fixed `router_api.py` status check: negative status ("not running") evaluated before positive substring.
-   - Pushed commit `63db4b9` to `salomanov/MQTT.git` and deployed live to router.
-9. **Usque SOCKS5 HTTP 500 Fix & Service Timeout (October 2026):**
-   - `handle_service_action()` in `router_api.py` had a rigid 15s timeout. Usque `start` takes up to 30s during `wait_for_ip`.
-   - Increased timeout to 40s for `start`/`restart` actions.
-   - Added graceful handling for `subprocess.TimeoutExpired` checking actual process status instead of returning HTTP 500.
-   - Deployed to router and committed as `f097052`.
-10. **Repository Path Migration & Git Sync Audit (October 2026):**
-   - Repositories relocated to `E:\Projects\Router_api` and `E:\Projects\tuya_mqtt_calibrator`.
-   - Synchronized `configs/lists/user.list` (added 6 uncommitted domains from router: `antigravity-unleash.goog`, `daily-cloudcode-pa.googleapis.com`, `lh3.googleusercontent.com`, `play.googleapis.com`, `www.googleapis.com`, `zyxel.com`).
-   - Discovered root cause of PC DNS resolution failure for Gemini and OpenRouter: Keenetic upstream DoT `xbox-dns.ru` returns `0.0.0.0` (sinkhole) for non-gaming domains.
-11. **Fresh Router Installer Hardening & DNS Automation (October 2026):**
-   - `install.sh`: Added `python3-email` dependency (critical for `http.server`) and automated download of `opkg_update.py` into `/opt/scripts`.
-   - `install_nfqws2.sh`: Added auto-detection and dynamic adaptation of `ISP_INTERFACE` to preserve whatever WAN connection the router uses (PPPoE `ppp0`, IPoE `eth3`, USB-modem, WISP) instead of hardcoding `ppp0`.
-   - `setup_dns.sh`: Created standalone installer applying the working DoT/DoH configuration (`dns.malw.link`, `dns.geohide.ru`, `dns.dns-ai.ru`) via Keenetic `ndmc`.
-   - `install_all.sh`: Integrated `setup_dns.sh` as Step 5 in All-in-One deployment.
-12. **Multi-Device YouTube Fix & DNS-Proxy Stabilization (October 2026):**
-   - Resolved YouTube buffering/failure on mobile phones and Smart TVs:
-     - Disabled pseudo-IPv6 SLAAC advertisement (`no ipv6 subnet Default`, `no ipv6 local-prefix default`) on Home LAN, eliminating the IPv6 black hole when the ISP provides no WAN IPv6 route.
-     - Extended `020-block-quic.sh` to reject QUIC (UDP 443) on both IPv4 (`iptables`) and IPv6 (`ip6tables`), forcing phones and TV apps to instantly fallback to TCP 443 HTTPS with nfqws2 desync.
-     - Removed failing `https://dns.geohide.ru:444/dns-query` DoH upstream from Keenetic `dns-proxy` and `setup_dns.sh` (eliminated recurring TLS certificate errors and DoH crashes logged in system log).
+## Security Model (October 2026)
+- **Пароль по умолчанию — `Salomanov`** (требование владельца: домашняя панель, не выставляется
+  в интернет). `init_auth()` хэширует его в `/opt/etc/router-api.auth` при первом старте,
+  принудительной смены нет. Смена пароля доступна всегда: кнопка с ключом в шапке панели
+  или `POST /api/password`.
+- Переопределяется при установке: `GROUTER_DEFAULT_PASSWORD=<свой>` (пишется в
+  `/opt/etc/grouter/default_password`, удаляется после хэширования) или
+  `GROUTER_RANDOM_PASSWORD=1` — одноразовый случайный пароль + обязательная смена.
+- `verify_credentials()` проверяет **только** PBKDF2-хэш из `/opt/etc/router-api.auth`.
+  Любой «аварийный fallback» запрещён — это бэкдор.
+- Сессии: `grouter_session` (HttpOnly, SameSite=Lax, 7 дней) + `Authorization: Bearer`
+  для POST. Query-string токены (`?token=`) не принимаются.
+- Блокировка после 5 неудачных попыток входа с одного IP на 5 минут (HTTP 429).
+- `POST /api/password` — смена пароля (старый + новый, минимум 10 символов), после смены
+  все сессии отзываются.
+- В режиме `GROUTER_RANDOM_PASSWORD=1` (`must_change_password = true`) разрешены только
+  `/api/status`, `/api/plan`, `/api/auth/check`, `/api/password` и `/api/logout`; остальное — `403`.
+- CORS: заголовок отдаётся только для собственного origin (совпадение с `Host`), wildcard убран.
+- Установщики каталога скачиваются в файл, проверяются на непустоту и только потом
+  запускаются. Пайп `curl ...` в `sh` запрещён (статус пайплайна принадлежит `sh`).
+- Клиентский `install_cmd` игнорируется: команда берётся только из серверного каталога.
 
-13. **Tailscale Service Health & Init Conflict Resolution (October 2026):**
-   - Fixed Logged out status caused by conflicting init script /opt/etc/init.d/S06tailscaled (which loaded an empty state file).
-   - Removed conflicting script, created symlink /opt/var/tailscaled.state -> /opt/var/lib/tailscale/tailscaled.state.
-   - Tailscale is active and healthy: IP 100.64.192.44, acting as Exit Node, direct connectivity verified (48ms to active peers).
+## Осознанные исключения по безопасности
+- Стандартный пароль `Salomanov` в коде/README/UI — по прямому требованию владельца.
+  Условия: панель в домашней LAN, порт 8089 не проброшен в интернет, смена пароля работает.
+  Занесено в `.security-gate-allow` (строка с `Salomanov`), чтобы гейт не «зеленел» молча.
+- `subprocess.run(..., shell=True)` в `/api/exec` — это и есть root-shell панели.
+  Условия: только с Bearer-токеном, команда ≤ 512 символов, одна за раз, с аудитом.
 
-14. **GRouter Web Catalog & nfqws Web Interface Fix for Fresh Installs (October 2026):**
-   - **Catalog Application Installation Fix:**
-     - In `router_api.py` and `app.js`, fixed invalid package names that caused Entware `Cannot find package ...` errors:
-       - `adguardhome`: Updated from `adguardhome` to official Entware package `adguardhome-go`.
-       - `transmission`: Updated from `transmission-daemon-openssl` to `transmission-daemon transmission-web`.
-       - Explicitly prefixed OPKG invocations with `/opt/bin/opkg` across all known services.
-     - Fixed `uninstall` handler in `router_api.py` to support multi-package removal (`cmd = ["/opt/bin/opkg", "remove"] + uninstall_pkg.split()`).
-     - Added automatic OPKG cache validation in `/api/exec`: if package lists in `/opt/var/opkg-lists` are missing/empty on fresh routers, the backend auto-fetches them before running `opkg install`.
-     - Added automatic cleanup of stale `/opt/tmp/opkg.lock` files before executing `opkg` commands.
-   - **nfqws Web Interface Automation:**
-     - Updated `install_nfqws2.sh` to install both `nfqws2-keenetic` and `nfqws-keenetic-web` (providing the official web UI on port 90 via lighttpd and php8-cgi).
-     - Added automatic restart of `lighttpd` and printed direct web interface URL `http://192.168.1.1:90/` upon completion.
-     - Updated `install_all.sh` to display the nfqws web interface link alongside GRouter.
+## Current Working State
 
-11. **Accurate Package Version Resolution (October 2026):**
-    - `router_api.py` now prioritizes package manager state (`opkg status <pkg>`) before falling back to binary CLI `-v` flags.
-    - Resolves `tg-ws-proxy` version detection (`0.11-3`) and eliminates false `↑ 0.11-3` update prompts.
-12. **Embedded Web Terminal (ttyd / Web PuTTY):**
-    - Browser subframe anti-phishing policies block HTTP 401 Basic Auth dialogs inside `<iframe>`.
-    - Implemented `/opt/scripts/ttyd_shell.sh`: an interactive authentication wrapper allowing `ttyd` to serve `200 OK` to the iframe while verifying password (`Salomanov`) in-terminal.
-    - Updated UI tab badges and iframe clipboard permissions.
+### 1. DPI bypass / media (исторически)
+- YouTube 4K/8K, Instagram, трекеры, Discord работают через nfqws2 + списки доменов.
+- `020-block-quic.sh` блокирует QUIC (UDP 443) по IPv4 и IPv6, форсируя TCP + desync.
+- Bambu Lab S3 и служебные домены — в `exclude.list`.
+- `user.list` — 412+ доменов, пополняется по мере необходимости.
 
-15. **nfqws Web Interface Port 90 Authentication & Routing Optimization (October 2026):**
-   - Fixed 401 Unauthorized / login block when accessing `http://192.168.1.1:90/`:
-     - Configured `auth.enabled = false` in `/opt/etc/nfqws_web.conf` for seamless, direct access from local LAN without disruptive login prompts.
-     - Added `admin` account alias in `/opt/etc/passwd` and enhanced `authenticate()` in `/opt/share/www/nfqws/index.php` to universally accept `admin` / `root` with passwords `Salomanov` and `keenetic`.
-     - Eliminated conflicting asset copying into `/opt/share/www` in `install.sh`, preventing lighttpd document-root collisions.
-     - Verified clean SPA rendering, tab switching, and API responses across mobile and desktop browsers.
+### 2. OPKG updates
+- `opkg_update.py`: скачивание `Packages.gz` чанками по 30 КБ через HTTP Range
+  (обход DPI-обрыва на ~33 КБ), проверка `206 Partial Content`, 3 попытки на чанк,
+  gzip-проверка, атомарная замена.
+- Репозитории читаются из `/opt/etc/opkg.conf` и `/opt/etc/opkg/*.conf`, а не из
+  захардкоженного списка.
+- Устаревший `/opt/tmp/opkg.lock` удаляется только если процесс `opkg` не запущен
+  (никаких `killall -9`).
+
+### 3. Web panel
+- Динамическое обнаружение служб в `/opt/etc/init.d/S*`, кэш discovery/статусов 3 с.
+- Вкладки: «Установленные службы», «Каталог приложений», «Терминал PuTTY».
+- Кнопки профиля: «Проверить профиль» (`/api/plan`), «Применить профиль» (`/api/apply`),
+  «Обновить всё» (`/api/update_all`).
+- Флаг `update_available` считается на бэкенде (`is_newer_version`), фронтенд не сравнивает
+  версии строками.
+- Логи: `RotatingFileHandler` (512 КБ × 3).
+
+### 4. Web terminal
+- `S96ttyd`: `ttyd -W -i 127.0.0.1 -p 7682 /opt/bin/sh` — только loopback.
+- Прокси в `router_api.py` слушает `7681`, проверяет cookie сессии панели; без входа — `401`.
+- Пароль терминала отдельно не нужен: авторизация = сессия панели.
+
+### 5. nfqws web UI (порт 90)
+- Аутентификация **не отключается**: это UI управления firewall/desync.
+- Учётные данные не инжектятся в чужой PHP; при необходимости задаются штатным
+  `/opt/etc/nfqws_web.conf`.
+
+## Известные исправления (не сломать повторно)
+1. `get_service_status`: негативные статусы (`not running`, `stopped`, `dead`, `inactive`)
+   проверяются **до** позитивных; финальная истина — `pidof`.
+2. `/api/logout` не вызывает `save_sessions()` под `_SESSIONS_LOCK` (был вечный дедлок).
+3. Обновление `tg-ws-proxy` сохраняет и восстанавливает `secret.conf` / `config.conf` (0600).
+4. `discover_services()` всегда возвращает dict с полем `script`; `os.path.*` не получает `None`.
+5. Кастомные init-скрипты удаляются перемещением в `/opt/etc/init.d.disabled/`, а не `os.remove`.
+6. Учётные данные отсутствуют в коде, документации, логах и баннерах установки.
+7. Ни один сетевой сервис (7681, 90, 8089) не отвечает без аутентификации.
+8. Все загрузки в установщиках — в файл, с проверкой непустоты и кода возврата; без пайпа в `sh`.
+9. `usque` использует единый путь, определённый по init-скрипту (`resolve_usque_path()`).
+10. `install_cmd` из тела запроса не выполняется; `shell=True` остался только в `/api/exec`
+    (это его назначение), команда ограничена 512 символами, выполняется по одной, с аудитом.
 
 ## Key Configuration Files
-- `/opt/etc/nfqws2/nfqws2.conf`: Anti-DPI engine configuration.
-- `/opt/etc/nfqws2/lists/user.list`: Domain list for targeted desync (413 domains).
-- `/opt/etc/nfqws2/lists/exclude.list`: Domains excluded from desync (e.g. Bambu Lab S3, Entware).
-- `/opt/etc/ndm/netfilter.d/020-block-quic.sh`: Dual-stack IPv4/IPv6 QUIC (UDP 443) blocker.
-- `/opt/scripts/router_api.py`: Multi-threaded web control panel API with dynamic discovery.
-- `/opt/scripts/opkg_update.py`: Resilient chunked OPKG package list updater.
-- `/opt/share/router-control-center/`: Web panel frontend (`index.html`, `app.js`, `style.css`).
-- `/opt/scripts/tuya_mqtt_calibrator.py`: Tuya MQTT calibrator service script.
-- `/opt/var/log/tuya_mqtt_calibrator.log`: Rotating runtime log for Tuya calibrator.
-- `setup_dns.sh`: Automatic Keenetic DoT/DoH configuration script.
+- `/opt/etc/grouter/profile.json`: профиль пакетов/служб/репозиториев.
+- `/opt/etc/router-api.auth`: PBKDF2-хэш пароля администратора (0600).
+- `/opt/etc/router-api.sessions`: активные сессии (0600).
+- `/opt/etc/grouter/initial_password`: одноразовый пароль, удаляется после смены (только secure-режим).
+- `/opt/etc/nfqws2/nfqws2.conf`, `configs/nfqws2.conf`: Anti-DPI конфигурация.
+- `/opt/etc/nfqws2/lists/user.list`: домены для desync (413+).
+- `/opt/etc/nfqws2/lists/exclude.list`: исключения (Bambu Lab S3, Entware).
+- `/opt/etc/ndm/netfilter.d/020-block-quic.sh`: блокировка QUIC IPv4/IPv6.
+- `/opt/scripts/router_api.py`: API панели + прокси ttyd.
+- `/opt/scripts/opkg_update.py`: устойчивое обновление списков OPKG.
+- `/opt/scripts/grouter_cli.py`, `/opt/bin/grouter`: CLI профиля.
+- `/opt/share/router-control-center/`: фронтенд (`index.html`, `app.js`, `style.css`).
 
 ## Next Steps
-- Verify YouTube playback across mobile devices, Smart TVs, and PCs.
+- Прогнать `install.sh` на чистом роутере и проверить: генерацию пароля, смену пароля,
+  вход в терминал только после логина, `grouter plan/apply`.
+- Проверить установку из каталога на живом устройстве (пакеты и скрипты).
+- Убедиться, что nfqws-web (порт 90) отдаёт 401 без креды после обновления пакета.
