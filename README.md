@@ -192,6 +192,51 @@ curl -fsSL -o /tmp/grouter.sh https://raw.githubusercontent.com/salomanov/router
 
 ---
 
+## Обновление без переустановки и откат
+
+`install.sh` поднимает всё с нуля. Чтобы обновить только панель, достаточно заменить файлы
+по их путям и перезапустить службы:
+
+| Файл в репозитории | Куда класть |
+| :--- | :--- |
+| `router_api.py` | `/opt/scripts/router_api.py` |
+| `grouter_cli.py`, `opkg_update.py` | `/opt/scripts/` |
+| `index.html`, `app.js`, `style.css` | `/opt/share/router-control-center/` |
+| `S90router-api` | `/opt/etc/init.d/S90router-api` |
+| `configs/profile.json` | `/opt/etc/grouter/profile.json` |
+
+Перед заменой сохраните текущие файлы — это единственный путь назад:
+
+```sh
+TS=$(date +%Y%m%d_%H%M%S)
+B=/opt/etc/grouter/backup_$TS
+mkdir -p "$B" && cp -p /opt/scripts/router_api.py /opt/scripts/grouter_cli.py \
+    /opt/share/router-control-center/index.html /opt/share/router-control-center/app.js \
+    /opt/etc/init.d/S90router-api /opt/etc/init.d/S96ttyd /opt/etc/router-api.auth "$B"/
+echo "backup: $B"
+```
+
+Откат:
+
+```sh
+/opt/etc/init.d/S90router-api stop
+B=/opt/etc/grouter/backup_<метка>
+cp "$B/router_api.py"  /opt/scripts/router_api.py
+cp "$B/grouter_cli.py" /opt/scripts/grouter_cli.py
+cp "$B/index.html"     /opt/share/router-control-center/index.html
+cp "$B/app.js"         /opt/share/router-control-center/app.js
+cp "$B/S90router-api"  /opt/etc/init.d/S90router-api
+cp "$B/S96ttyd"        /opt/etc/init.d/S96ttyd
+cp "$B/router-api.auth" /opt/etc/router-api.auth
+/opt/etc/init.d/S96ttyd restart
+/opt/etc/init.d/S90router-api start
+```
+
+Панель считается поднявшейся, если `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8089/`
+отвечает `200`. Если нет — сразу откат, а не поиск причины на живом устройстве.
+
+---
+
 ## Структура репозитория
 
 ```
