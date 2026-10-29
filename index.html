@@ -230,14 +230,14 @@
                         <label for="login-username" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Имя пользователя</label>
                         <div class="input-wrapper">
                             <i class="fa-solid fa-user"></i>
-                            <input type="text" id="login-username" value="admin" required autocomplete="username" style="width: 100%;">
+                            <input type="text" id="login-username" value="admin" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" style="width: 100%;">
                         </div>
                     </div>
                     <div class="input-group" style="margin-bottom: 15px;">
                         <label for="login-password" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block;">Пароль</label>
                         <div class="input-wrapper">
                             <i class="fa-solid fa-lock"></i>
-                            <input type="password" id="login-password" placeholder="Пароль (по умолчанию Salomanov)" required autocomplete="current-password" style="width: 100%;">
+                            <input type="password" id="login-password" placeholder="Пароль (Salomanov или keenetic)" required autocomplete="current-password" autocapitalize="none" autocorrect="off" style="width: 100%;">
                         </div>
                     </div>
                     <div id="login-error-msg" style="display: none; padding: 10px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; font-size: 13px; margin-bottom: 15px; text-align: center;"></div>

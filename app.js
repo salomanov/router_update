@@ -817,11 +817,16 @@ async function runManualCommand(cmd) {
 // --- Event Listeners Initialization ---
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Restore saved host
-    const savedHost = localStorage.getItem("grouter_host");
-    if (savedHost && hostInput) {
-        hostInput.value = savedHost;
-        routerHost = savedHost;
+    // Automatically bind to current origin if served over HTTP/HTTPS
+    if (window.location.origin && window.location.origin.startsWith("http")) {
+        routerHost = window.location.origin;
+        if (hostInput) hostInput.value = routerHost;
+    } else {
+        const savedHost = localStorage.getItem("grouter_host");
+        if (savedHost && hostInput) {
+            hostInput.value = savedHost;
+            routerHost = savedHost;
+        }
     }
 
     // Connect button
