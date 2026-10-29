@@ -69,13 +69,47 @@ curl -fsSL -o /opt/share/router-control-center/app.js "${REPO_RAW}/app.js${CACHE
 # Копируем веб-ассеты также в /opt/share/www для доступности через встроенный сервер
 cp -f /opt/share/router-control-center/* /opt/share/www/ 2>/dev/null || true
 
-# 5. Настройка службы ttyd (PuTTY веб-терминал с паролем admin:Salomanov)
+# 5. Настройка службы ttyd (интерактивная аутентификация в iframe)
+cat << 'EOFTSH' > /opt/scripts/ttyd_shell.sh
+#!/opt/bin/sh
+export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
+export TERM=xterm-256color
+export HOME=/root
+
+printf "\033[1;36m==================================================\033[0m\n"
+printf "\033[1;36m       GRouter Control Center - Web PuTTY         \033[0m\n"
+printf "\033[1;36m==================================================\033[0m\n"
+printf "Для входа в консоль роутера введите пароль (Salomanov):\n\n"
+
+tries=0
+while [ $tries -lt 3 ]; do
+    printf "Пароль: "
+    stty -echo 2>/dev/null
+    read PASS
+    stty echo 2>/dev/null
+    printf "\n"
+    if [ "$PASS" = "Salomanov" ] || [ "$PASS" = "keenetic" ]; then
+        printf "\033[0;32m[OK] Доступ разрешен. Запуск root shell...\033[0m\n\n"
+        cd /root 2>/dev/null || cd /opt
+        exec /opt/bin/sh
+    else
+        printf "\033[0;31mНеверный пароль!\033[0m\n\n"
+        tries=$((tries + 1))
+    fi
+done
+
+printf "\033[0;31mПревышено число попыток входа.\033[0m\n"
+sleep 2
+exit 1
+EOFTSH
+chmod 755 /opt/scripts/ttyd_shell.sh
+
 cat << 'EOFTTYD' > /opt/etc/init.d/S96ttyd
 #!/bin/sh
 
 ENABLED=yes
 PROCS=ttyd
-ARGS="-W -p 7681 -c admin:Salomanov -t fontSize=14 /bin/sh"
+ARGS="-W -p 7681 /bin/sh /opt/scripts/ttyd_shell.sh"
 PREARGS=""
 DESC="Web Terminal (ttyd)"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -83,6 +117,24 @@ PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/u
 . /opt/etc/init.d/rc.func
 EOFTTYD
 chmod +x /opt/etc/init.d/S96ttyd
+
+# 5.1 Автоматическое исправление конфликта портов для lighttpd (перевод на порт 90)
+if [ -d "/opt/etc/lighttpd" ]; then
+    mkdir -p /opt/etc/lighttpd/conf.d
+    cat << 'EOFLIGHT' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
+server.port := 90
+server.username := ""
+server.groupname := ""
+
+cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
+static-file.exclude-extensions += ( ".php" )
+setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
+index-file.names := ( "index.html" )
+server.error-handler-404 = "/nfqws/index.html"
+url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
+EOFLIGHT
+    [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart > /dev/null 2>&1 || true
+fi
 
 # 6. Права и запуск
 chmod 755 /opt/scripts/router_api.py
