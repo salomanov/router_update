@@ -46,9 +46,13 @@ mock_data = {
 
 class MockRouterAPIHandler(BaseHTTPRequestHandler):
     def send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        # Same-origin only, to mirror the production server
+        origin = (self.headers.get("Origin") or "").strip()
+        host = (self.headers.get("Host") or "").strip()
+        if origin and host and origin in ("http://" + host, "https://" + host):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -94,15 +98,20 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
         self.send_json_response({"error": message}, status_code)
 
     def handle_static_file(self):
-        filename = self.path
+        filename = self.path.split("?")[0]
         if filename == "/":
             filename = "/index.html"
-            
+
         import os
-        # Serve from local workspace folder (current working directory)
-        file_path = os.path.join(os.getcwd(), filename.lstrip("/"))
-        
-        if not os.path.exists(file_path):
+        # Serve only files from the workspace folder; never escape it
+        base_dir = os.path.realpath(os.getcwd())
+        file_path = os.path.realpath(os.path.join(base_dir, filename.lstrip("/")))
+
+        if not (file_path == base_dir or file_path.startswith(base_dir + os.sep)):
+            self.send_error_response(403, "Forbidden")
+            return
+
+        if not os.path.isfile(file_path):
             self.send_error_response(404, f"File {filename} not found")
             return
             
@@ -222,7 +231,8 @@ class MockRouterAPIHandler(BaseHTTPRequestHandler):
         })
 
 def run_server():
-    server_address = ('', PORT)
+    # Loopback only: this is a developer mock without authentication
+    server_address = ('127.0.0.1', PORT)
     httpd = HTTPServer(server_address, MockRouterAPIHandler)
     print(f"Mock Router API server running on http://localhost:{PORT}")
     try:
