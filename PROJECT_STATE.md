@@ -58,11 +58,12 @@
 
 ## Current Working State
 
-### 1. DPI bypass / media (исторически)
+### 1. DPI bypass / media (исторически и текущее состояние)
 - YouTube 4K/8K, Instagram, трекеры, Discord работают через nfqws2 + списки доменов.
-- `020-block-quic.sh` блокирует QUIC (UDP 443) по IPv4 и IPv6, форсируя TCP + desync.
-- Bambu Lab S3 и служебные домены — в `exclude.list`.
-- `user.list` — 412+ доменов, пополняется по мере необходимости.
+- Стандартная стратегия nfqws2 (`circular:fails=2:time=300:retrans=3:nld=2` с multisplit и `fastpath-workaround=auto`). Списки очищены от накопившихся ложных срабатываний в `auto.list`.
+- `020-block-quic.sh`, `015-l2tp.sh`, `005-lan-fix.sh`: блокировка QUIC (UDP 443) по IPv4/IPv6, немедленный сброс IPv6-форвардинга (исключение Happy Eyeballs таймаутов при отсутствии IPv6 WAN), принудительный редирект DNS (порт 53) в локальный DoH/SmartDNS и TCP MSS Clamping to PMTU.
+- Bambu Lab S3, Entware, Kaspersky и служебные домены — в `exclude.list`.
+- `user.list` — стандартный чистый список доменов.
 
 ### 2. OPKG updates
 - `opkg_update.py`: скачивание `Packages.gz` чанками по 30 КБ через HTTP Range

@@ -6,7 +6,6 @@ __pycache__/
 .vscode/
 graphify-out/
 
-
 .backups/
 
 result.json
@@ -19,6 +18,4 @@ initial_password
 
 # Security review documents (contain details of previously leaked credentials)
 AGENT_RECOMMENDATIONS.md
-
 ses_*.json
-*.sessions
