@@ -2,7 +2,8 @@
 
 # ==========================================================
 # nfqws2 Anti-DPI Auto-Installer for Keenetic / Entware
-# YouTube 4K, Instagram, NNM-Club, Rutracker, Discord, BambuLab
+# Upstream-first: official nfqws2-keenetic package + web UI (port 90)
+# + Netfilter rules for LAN DNS redirect, QUIC block, MSS clamp
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -20,17 +21,26 @@ fi
 
 export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
 
-# 2. Добавление репозитория nfqws2
-printf "${YELLOW}[1/4] Настройка репозитория nfqws2...${NC}\n"
+# 2. Безопасная очистка зависших локов opkg (без killall)
+if [ -f "/opt/tmp/opkg.lock" ]; then
+    if ! pgrep opkg >/dev/null 2>&1; then
+        rm -f "/opt/tmp/opkg.lock"
+    fi
+fi
+
+# 3. Добавление официальных репозиториев nfqws2
+printf "${YELLOW}[1/4] Настройка репозиториев nfqws2...${NC}\n"
 mkdir -p /opt/etc/opkg
 echo "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/all" > /opt/etc/opkg/nfqws2-keenetic.conf
 echo "src/gz nfqws-keenetic-web https://nfqws.github.io/nfqws-keenetic-web/all" > /opt/etc/opkg/nfqws-keenetic-web.conf
 
-# 3. Установка пакета
-printf "${YELLOW}[2/4] Установка пакета nfqws2-keenetic через OPKG...${NC}\n"
-killall opkg 2>/dev/null
-rm -f /opt/tmp/opkg.lock
-opkg update >/dev/null 2>&1
+# 4. Обновление списков пакетов (устойчиво к DPI)
+printf "${YELLOW}[2/4] Установка пакетов nfqws2-keenetic и nfqws-keenetic-web...${NC}\n"
+if [ -x "/opt/scripts/opkg_update.py" ]; then
+    python3 /opt/scripts/opkg_update.py >/dev/null 2>&1 || opkg update >/dev/null 2>&1
+else
+    opkg update >/dev/null 2>&1
+fi
 opkg install nfqws2-keenetic nfqws-keenetic-web >/dev/null 2>&1
 
 if [ ! -x "/opt/usr/bin/nfqws2" ]; then
@@ -38,62 +48,43 @@ if [ ! -x "/opt/usr/bin/nfqws2" ]; then
     exit 1
 fi
 
-# 4. Загрузка готовой конфигурации, списков и бинарных блобов
-printf "${YELLOW}[3/4] Загрузка проверенной конфигурации и списков хостов...${NC}\n"
-mkdir -p /opt/etc/nfqws2/lists /opt/etc/nfqws2/blobs /opt/etc/nfqws2/lua
-
+# 5. Загрузка сетевых правил (NDM netfilter hooks)
+printf "${YELLOW}[3/4] Установка сетевых правил (DNS redirect, QUIC block, MSS clamp)...${NC}\n"
+mkdir -p /opt/etc/ndm/netfilter.d
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main/configs"
 CACHE_BUST="?nocache=$(date +%s)$$"
 
-# Скачивание nfqws2.conf
-curl -sL -o /opt/etc/nfqws2/nfqws2.conf "${REPO_RAW}/nfqws2.conf${CACHE_BUST}"
+fetch() {
+    curl -fsSL --max-time 30 -o "$2" "$1" 2>/dev/null || true
+    [ -s "$2" ] && chmod +x "$2"
+}
 
-# Автоопределение активного WAN-интерфейса роутера (PPPoE ppp0, IPoE eth3, USB-модем и др.)
+# Сетевые правила для LAN (перехват DNS, сброс мертвого IPv6, сжатие MSS)
+fetch "${REPO_RAW}/ndm/005-lan-fix.sh${CACHE_BUST}" /opt/etc/ndm/netfilter.d/005-lan-fix.sh
+# Сетевые правила для L2TP VPN клиентов
+fetch "${REPO_RAW}/ndm/015-l2tp.sh${CACHE_BUST}" /opt/etc/ndm/netfilter.d/015-l2tp.sh
+# Блокировка QUIC
+fetch "${REPO_RAW}/ndm/020-block-quic.sh${CACHE_BUST}" /opt/etc/ndm/netfilter.d/020-block-quic.sh
+
+# Запуск сетевых правил
+[ -x "/opt/etc/ndm/netfilter.d/005-lan-fix.sh" ] && /opt/etc/ndm/netfilter.d/005-lan-fix.sh >/dev/null 2>&1 || true
+[ -x "/opt/etc/ndm/netfilter.d/015-l2tp.sh" ] && /opt/etc/ndm/netfilter.d/015-l2tp.sh >/dev/null 2>&1 || true
+[ -x "/opt/etc/ndm/netfilter.d/020-block-quic.sh" ] && /opt/etc/ndm/netfilter.d/020-block-quic.sh >/dev/null 2>&1 || true
+
+# Автоопределение активного WAN-интерфейса роутера
 DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
-if [ -z "$DEF_IFACE" ]; then
-    DEF_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
-fi
-if [ -n "$DEF_IFACE" ]; then
-    printf "Автоопределен интернет-интерфейс: %s\n" "$DEF_IFACE"
+[ -z "$DEF_IFACE" ] && DEF_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+if [ -n "$DEF_IFACE" ] && [ -f "/opt/etc/nfqws2/nfqws2.conf" ]; then
+    printf "Интернет-интерфейс: %s\n" "$DEF_IFACE"
     sed -i -E "s#^ISP_INTERFACE=\".+\"#ISP_INTERFACE=\"$DEF_IFACE\"#" /opt/etc/nfqws2/nfqws2.conf
 fi
 
-# Скачивание списков
-curl -sL -o /opt/etc/nfqws2/lists/user.list "${REPO_RAW}/lists/user.list${CACHE_BUST}"
-curl -sL -o /opt/etc/nfqws2/lists/exclude.list "${REPO_RAW}/lists/exclude.list${CACHE_BUST}"
-curl -sL -o /opt/etc/nfqws2/lists/ipset.list "${REPO_RAW}/lists/ipset.list${CACHE_BUST}"
-curl -sL -o /opt/etc/nfqws2/lists/ipset_exclude.list "${REPO_RAW}/lists/ipset_exclude.list${CACHE_BUST}"
-touch /opt/etc/nfqws2/lists/auto.list
-
-# Скачивание бинарных блобов для desync
-BLOBS="ACTIVE_DISCORD_UDP.bin discord_udp.bin quic_initial.bin quic_initial_dbankcloud_ru.bin quic_initial_vk_com.bin quic_initial_www_google_com.bin stun.bin tls_clienthello.bin tls_clienthello_4pda_to.bin tls_clienthello_max_ru.bin tls_clienthello_vk_com.bin tls_clienthello_www_google_com.bin"
-for b in $BLOBS; do
-    curl -sL -o "/opt/etc/nfqws2/blobs/$b" "${REPO_RAW}/blobs/$b${CACHE_BUST}"
-done
-
-# Настройка блокировки QUIC (UDP 443) для исключения заиканий звука и видео в YouTube
-mkdir -p /opt/etc/ndm/netfilter.d
-curl -sL -o /opt/etc/ndm/netfilter.d/020-block-quic.sh "${REPO_RAW}/ndm/020-block-quic.sh${CACHE_BUST}"
-chmod +x /opt/etc/ndm/netfilter.d/020-block-quic.sh
-/opt/etc/ndm/netfilter.d/020-block-quic.sh >/dev/null 2>&1
-
-# 5. Запуск и проверка службы
-printf "${YELLOW}[4/4] Запуск службы nfqws2...${NC}\n"
-if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
-    /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
-    sleep 2
-    if pgrep nfqws2 >/dev/null; then
-        printf "\n${GREEN}==========================================================${NC}\n"
-        printf "${GREEN}nfqws2 успешно установлен и запущен!${NC}\n"
-        printf "${GREEN}YouTube, Instagram, Rutracker, NNM-Club и Discord активны.${NC}\n"
-        # Официальная чистая конфигурация nfqws-keenetic-web для lighttpd (порт 90)
-        if [ -d "/opt/etc/lighttpd" ]; then
-            mkdir -p /opt/etc/lighttpd/conf.d
-            rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null
-            cat << 'EOFLIGHTY' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
+# Настройка веб-интерфейса nfqws-web на порту 90 (lighttpd)
+if [ -d "/opt/etc/lighttpd" ]; then
+    mkdir -p /opt/etc/lighttpd/conf.d
+    rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null || true
+    cat << 'EOFLIGHT' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
 server.port := 90
-server.username := ""
-server.groupname := ""
 
 cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
 static-file.exclude-extensions += ( ".php" )
@@ -101,25 +92,24 @@ setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/
 index-file.names := ( "index.html" )
 server.error-handler-404 = "/nfqws/index.html"
 url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
-EOFLIGHTY
-        fi
+EOFLIGHT
+    [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart > /dev/null 2>&1 || true
+fi
 
-        # Авторизация nfqws-web НЕ отключается: это UI управления firewall/desync.
-        # Учётные данные не инжектятся в чужой PHP-код — при необходимости
-        # пароль задаётся штатным конфигом /opt/etc/nfqws_web.conf.
-        if [ -f "/opt/etc/nfqws_web.conf" ] && grep -q 'enabled = false' /opt/etc/nfqws_web.conf; then
-            printf "${YELLOW}Внимание: авторизация nfqws-web выключена в /opt/etc/nfqws_web.conf.${NC}\n"
-            printf "${YELLOW}Включите её вручную: enabled = true${NC}\n"
-        fi
-        if [ -f "/opt/share/www/nfqws/index.html" ] && ! grep -q "history.replaceState" /opt/share/www/nfqws/index.html; then
-            sed -i "s#<head>#<head><script>if(location.pathname.endsWith('/index.html')){history.replaceState(null,'',location.pathname.slice(0,-10)||'/')}</script>#" /opt/share/www/nfqws/index.html
-        fi
-        if [ -x "/opt/etc/init.d/S80lighttpd" ]; then
-            /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1
-        fi
-        printf "${GREEN}Веб-интерфейс nfqws доступен по адресу: http://192.168.1.1:90/${NC}\n"
+# 6. Запуск и проверка службы
+printf "${YELLOW}[4/4] Запуск службы nfqws2...${NC}\n"
+if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
+    /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
+    sleep 2
+    if pgrep nfqws2 >/dev/null || pgrep nfqws >/dev/null; then
+        LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+        [ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
+        printf "\n${GREEN}==========================================================${NC}\n"
+        printf "${GREEN}nfqws2 успешно установлен и запущен!${NC}\n"
+        printf "${GREEN}Веб-интерфейс nfqws: http://%s:90/${NC}\n" "$LAN_IP"
         printf "${GREEN}==========================================================${NC}\n\n"
-    else
-        printf "${RED}Внимание: Служба nfqws2 не запустилась, проверьте /opt/var/log/nfqws2.log${NC}\n"
+        exit 0
     fi
 fi
+
+printf "${YELLOW}nfqws2 установлен, проверьте статус через веб-панель.${NC}\n"

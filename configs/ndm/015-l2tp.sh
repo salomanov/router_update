@@ -1,20 +1,4 @@
-import paramiko
-import sys
-
-sys.stdout.reconfigure(encoding='utf-8')
-
-HOST = "178.140.8.56"
-PORT = 34222
-USER = "root"
-PASS = "keenetic"
-
-def run():
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, port=PORT, username=USER, password=PASS, timeout=15)
-    
-    # Create persistent hook in /opt/etc/ndm/netfilter.d/015-l2tp.sh
-    script_content = """#!/bin/sh
+#!/bin/sh
 # L2TP VPN Optimization & Fix for YouTube / Streaming
 
 # 1. Clamp TCP MSS to 1360 for L2TP (MTU 1400 - 40 header = 1360) to prevent packet drops on video streams
@@ -31,33 +15,3 @@ ip6tables -C FORWARD -o l2tp+ -j REJECT --reject-with icmp6-port-unreachable 2>/
 # 4. Redirect plain DNS to router's resolver
 iptables -t nat -C PREROUTING -i l2tp+ -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || iptables -t nat -I PREROUTING -i l2tp+ -p udp --dport 53 -j REDIRECT --to-ports 53
 iptables -t nat -C PREROUTING -i l2tp+ -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || iptables -t nat -I PREROUTING -i l2tp+ -p tcp --dport 53 -j REDIRECT --to-ports 53
-"""
-
-    stdin, stdout, stderr = client.exec_command("cat > /opt/etc/ndm/netfilter.d/015-l2tp.sh && chmod +x /opt/etc/ndm/netfilter.d/015-l2tp.sh")
-    stdin.write(script_content)
-    stdin.channel.shutdown_write()
-    stdout.read()
-
-    # Execute it now
-    stdin, stdout, stderr = client.exec_command("/opt/etc/ndm/netfilter.d/015-l2tp.sh")
-    print(stdout.read().decode('utf-8', errors='replace'))
-    err = stderr.read().decode('utf-8', errors='replace')
-    if err:
-        print("ERR:", err)
-
-    # Verify rules are present
-    cmd = """
-    echo "=== Mangle TCPMSS ==="
-    iptables -t mangle -L FORWARD -n -v | grep -i 'tcpmss\\|l2tp'
-    echo "=== Filter FORWARD QUIC/L2TP ==="
-    iptables -L FORWARD -n -v | grep -i 'l2tp'
-    echo "=== ip6tables FORWARD L2TP ==="
-    ip6tables -L FORWARD -n -v | grep -i 'l2tp'
-    """
-    stdin, stdout, stderr = client.exec_command(cmd)
-    print(stdout.read().decode('utf-8', errors='replace'))
-
-    client.close()
-
-if __name__ == "__main__":
-    run()

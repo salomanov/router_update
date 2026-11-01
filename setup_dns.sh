@@ -2,7 +2,7 @@
 
 # ==========================================================
 # Secure DNS Setup (DoT & DoH) for KeeneticOS
-# Защищенный быстрый DNS без цензуры провайдеров
+# Защищенный быстрый DNS без цензуры провайдеров + SmartDNS (ChatGPT, Gemini)
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -23,12 +23,16 @@ printf "${YELLOW}Применение настроек DNS-over-TLS и DNS-over-
 # Включение защиты от DNS Rebinding
 ndmc -c 'dns-proxy rebind-protect auto' >/dev/null 2>&1
 
-# Добавление надежных апстримов DoT (порт 853)
-ndmc -c 'dns-proxy tls upstream dns.malw.link' >/dev/null 2>&1
+# Добавление апстримов DoT (порт 853)
+ndmc -c 'dns-proxy tls upstream geohide.ru' >/dev/null 2>&1
 ndmc -c 'dns-proxy tls upstream dns.geohide.ru' >/dev/null 2>&1
+ndmc -c 'dns-proxy tls upstream eu.geohide.ru' >/dev/null 2>&1
+ndmc -c 'dns-proxy tls upstream dns.malw.link' >/dev/null 2>&1
 ndmc -c 'dns-proxy tls upstream dns.dns-ai.ru' >/dev/null 2>&1
 
-# Добавление быстрых апстримов DoH (порт 443)
+# Добавление апстримов DoH (порт 443)
+ndmc -c 'dns-proxy https upstream https://geohide.ru/dns-query dnsm' >/dev/null 2>&1
+ndmc -c 'dns-proxy https upstream https://eu.geohide.ru/dns-query dnsm' >/dev/null 2>&1
 ndmc -c 'dns-proxy https upstream https://dns.malw.link/dns-query dnsm' >/dev/null 2>&1
 ndmc -c 'dns-proxy https upstream https://dns.dns-ai.ru/dns-query dnsm' >/dev/null 2>&1
 
@@ -37,5 +41,5 @@ ndmc -c 'system configuration save' >/dev/null 2>&1
 
 printf "\n${GREEN}==========================================================${NC}\n"
 printf "${GREEN}DNS успешно настроен и защищен!${NC}\n"
-printf "${GREEN}Используются DoT/DoH: dns.malw.link, dns.geohide.ru, dns.dns-ai.ru${NC}\n"
+printf "${GREEN}Используются DoT/DoH: geohide.ru, dns.malw.link, dns.dns-ai.ru${NC}\n"
 printf "${GREEN}==========================================================${NC}\n\n"

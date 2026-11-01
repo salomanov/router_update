@@ -61,9 +61,10 @@
 ### 1. DPI bypass / media (исторически и текущее состояние)
 - YouTube 4K/8K, Instagram, трекеры, Discord работают через nfqws2 + списки доменов.
 - Стандартная стратегия nfqws2 (`circular:fails=2:time=300:retrans=3:nld=2` с multisplit и `fastpath-workaround=auto`). Списки очищены от накопившихся ложных срабатываний в `auto.list`.
-- `020-block-quic.sh`, `015-l2tp.sh`, `005-lan-fix.sh`: блокировка QUIC (UDP 443) по IPv4/IPv6, немедленный сброс IPv6-форвардинга (исключение Happy Eyeballs таймаутов при отсутствии IPv6 WAN), принудительный редирект DNS (порт 53) в локальный DoH/SmartDNS и TCP MSS Clamping to PMTU.
+- `020-block-quic.sh`, `015-l2tp.sh`, `005-lan-fix.sh`: блокировка QUIC (UDP 443) по IPv4/IPv6, немедленный сброс IPv6-форвардинга (исключение Happy Eyeballs таймаутов при отсутствии IPv6 WAN), принудительный редирект DNS (порт 53) в локальный DoH/SmartDNS и TCP MSS Clamping to PMTU (1360 для L2TP).
 - Bambu Lab S3, Entware, Kaspersky и служебные домены — в `exclude.list`.
-- `user.list` — стандартный чистый список доменов.
+- `user.list` — стандартный чистый список доменов (273 записи).
+- **DNS Upstreams & AI Resolution**: апстрим `xbox-dns.ru` (порт 40508) отвечает за 6 мс и перехватывает запросы к `chatgpt.com` и `gemini.google.com`, возвращая `0.0.0.0` (ERR_NAME_NOT_RESOLVED / ERR_CONNECTION_CLOSED). Для работы ChatGPT/Gemini в РФ необходимы специализированные SmartDNS (`dns.dns-ai.ru`, `dns.malw.link`, `geohide.ru`), а `xbox-dns.ru` должен использоваться изолированно для консолей или удалён из общих апстримов.
 
 ### 2. OPKG updates
 - `opkg_update.py`: скачивание `Packages.gz` чанками по 30 КБ через HTTP Range

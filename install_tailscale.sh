@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}=== Начинаю быструю установку Tailscale на роутер ===${NC}\n"
+printf "${GREEN}=== Установка Tailscale на роутер ===${NC}\n"
 
 # 1. Проверка Entware
 if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
@@ -19,8 +19,15 @@ fi
 
 export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
 
-# 2. Подготовка системных каталогов и TUN-драйвера
-printf "${YELLOW}[1/5] Настройка TUN-интерфейса и IP Forwarding...${NC}\n"
+# 2. Безопасная очистка зависших локов opkg (без killall)
+if [ -f "/opt/tmp/opkg.lock" ]; then
+    if ! pgrep opkg >/dev/null 2>&1; then
+        rm -f "/opt/tmp/opkg.lock"
+    fi
+fi
+
+# 3. Настройка TUN-интерфейса и IP Forwarding
+printf "${YELLOW}[1/4] Настройка TUN-интерфейса и сетевого форвардинга...${NC}\n"
 mkdir -p /dev/net /opt/var/lib/tailscale /opt/var/run/tailscale /opt/var/log /opt/etc/init.d /opt/etc/ndm/netfilter.d
 if [ ! -c /dev/net/tun ]; then
     mknod /dev/net/tun c 10 200
@@ -28,22 +35,13 @@ fi
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null 2>&1
 
-# 3. Добавление доменов Tailscale в белый список nfqws2
-printf "${YELLOW}[2/5] Добавление Tailscale в список обхода DPI (nfqws2)...${NC}\n"
-USER_LIST="/opt/etc/nfqws2/lists/user.list"
-if [ -f "$USER_LIST" ]; then
-    for d in tailscale.com controlplane.tailscale.com login.tailscale.com log.tailscale.io pkgs.tailscale.com derp.tailscale.com; do
-        grep -q "$d" "$USER_LIST" || echo "$d" >> "$USER_LIST"
-    done
-    sort -u "$USER_LIST" > "$USER_LIST.tmp" && mv "$USER_LIST.tmp" "$USER_LIST"
-    [ -x "/opt/etc/init.d/S51nfqws2" ] && /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
+# 4. Установка пакета Tailscale через OPKG
+printf "${YELLOW}[2/4] Установка пакета tailscale...${NC}\n"
+if [ -x "/opt/scripts/opkg_update.py" ]; then
+    python3 /opt/scripts/opkg_update.py >/dev/null 2>&1 || opkg update >/dev/null 2>&1
+else
+    opkg update >/dev/null 2>&1
 fi
-
-# 4. Установка пакета Tailscale
-printf "${YELLOW}[3/5] Установка пакета Tailscale через OPKG...${NC}\n"
-killall opkg 2>/dev/null
-rm -f /opt/tmp/opkg.lock
-opkg update >/dev/null 2>&1
 opkg install tailscale >/dev/null 2>&1
 
 if [ ! -x "/opt/bin/tailscaled" ]; then
@@ -57,7 +55,7 @@ mkdir -p /opt/var/lib/tailscale
 ln -sf /opt/var/lib/tailscale/tailscaled.state /opt/var/tailscaled.state 2>/dev/null || true
 
 # 5. Создание скрипта автозапуска S06tailscale
-printf "${YELLOW}[4/5] Настройка автозапуска службы tailscaled...${NC}\n"
+printf "${YELLOW}[3/4] Настройка автозапуска службы tailscaled...${NC}\n"
 cat << 'EOF' > /opt/etc/init.d/S06tailscale
 #!/bin/sh
 
@@ -97,49 +95,29 @@ esac
 EOF
 chmod +x /opt/etc/init.d/S06tailscale
 
-# 6. Настройка постоянных правил iptables
-cat << 'EOF' > /opt/etc/ndm/netfilter.d/010-tailscale.sh
-#!/bin/sh
-iptables -C INPUT -i tailscale0 -j ACCEPT 2>/dev/null || iptables -I INPUT -i tailscale0 -j ACCEPT
-iptables -C FORWARD -i tailscale0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -i tailscale0 -j ACCEPT
-iptables -C FORWARD -o tailscale0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -o tailscale0 -j ACCEPT
+# 6. Настройка постоянных правил iptables для Tailscale
+REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main/configs"
+CACHE_BUST="?nocache=$(date +%s)$$"
+curl -fsSL --max-time 30 -o /opt/etc/ndm/netfilter.d/010-tailscale.sh "${REPO_RAW}/ndm/010-tailscale.sh${CACHE_BUST}" 2>/dev/null || true
+if [ -s "/opt/etc/ndm/netfilter.d/010-tailscale.sh" ]; then
+    chmod +x /opt/etc/ndm/netfilter.d/010-tailscale.sh
+    /opt/etc/ndm/netfilter.d/010-tailscale.sh >/dev/null 2>&1 || true
+fi
 
-# 1. Reject QUIC (UDP 443) from tailscale0 to force apps to fallback to TCP with DPI bypass instantly
-iptables -C FORWARD -i tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -I FORWARD -i tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable
-
-# 2. Reject dead ISP block stubs (e.g. ER-Telecom / Dom.ru spoofing IP) immediately with RST
-iptables -C FORWARD -d 188.186.146.207 -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -I FORWARD -d 188.186.146.207 -p tcp -j REJECT --reject-with tcp-reset
-
-# 3. Intercept all plain DNS from Tailscale and redirect to router's secure DoH resolver
-iptables -t nat -C PREROUTING -i tailscale0 -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || iptables -t nat -I PREROUTING -i tailscale0 -p udp --dport 53 -j REDIRECT --to-ports 53
-iptables -t nat -C PREROUTING -i tailscale0 -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || iptables -t nat -I PREROUTING -i tailscale0 -p tcp --dport 53 -j REDIRECT --to-ports 53
-
-# 4. Clamp TCP MSS for Tailscale (MTU 1280) to 1240 to prevent packet drops and fragmentation
-iptables -t mangle -C FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -t mangle -I FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
-iptables -t mangle -C FORWARD -i tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -t mangle -I FORWARD -i tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
-
-# 5. Reject IPv6 forwarding from tailscale0 immediately to eliminate Happy Eyeballs timeouts
-ip6tables -C FORWARD -i tailscale0 -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null || ip6tables -I FORWARD -i tailscale0 -j REJECT --reject-with icmp6-port-unreachable
-
-# NAT masquerade for Exit Node (auto-detect default outgoing WAN interface)
-DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
-[ -z "$DEF_IFACE" ] && DEF_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
-[ -z "$DEF_IFACE" ] && DEF_IFACE="ppp0"
-
-iptables -t nat -C POSTROUTING -s 100.64.0.0/10 -j MASQUERADE 2>/dev/null || iptables -t nat -I POSTROUTING -s 100.64.0.0/10 -j MASQUERADE
-iptables -t nat -C POSTROUTING -o "$DEF_IFACE" -j MASQUERADE 2>/dev/null || iptables -t nat -I POSTROUTING -o "$DEF_IFACE" -j MASQUERADE
-EOF
-chmod +x /opt/etc/ndm/netfilter.d/010-tailscale.sh
-/opt/etc/ndm/netfilter.d/010-tailscale.sh
-
-# 7. Запуск службы и генерация ссылки
-printf "${YELLOW}[5/5] Запуск Tailscale и получение ссылки авторизации...${NC}\n"
+# 7. Запуск службы
+printf "${YELLOW}[4/4] Запуск службы Tailscale...${NC}\n"
 /opt/etc/init.d/S06tailscale restart >/dev/null 2>&1
-sleep 3
+sleep 2
 
-printf "\n${GREEN}==========================================================${NC}\n"
-printf "${GREEN}Tailscale успешно установлен и запущен!${NC}\n"
-printf "${GREEN}Для привязки роутера перейдите по ссылке ниже:${NC}\n"
-printf "${GREEN}==========================================================${NC}\n\n"
-
-/opt/bin/tailscale --socket=/opt/var/run/tailscale/tailscaled.sock up --advertise-exit-node --advertise-routes=192.168.1.0/24 --accept-dns=false --accept-routes=false --reset --timeout=20s
+if pgrep tailscaled >/dev/null; then
+    printf "\n${GREEN}==========================================================${NC}\n"
+    printf "${GREEN}Tailscale успешно установлен и запущен!${NC}\n"
+    printf "Для авторизации роутера в вашей сети Tailscale выполните:\n"
+    printf "${YELLOW}/opt/bin/tailscale up${NC}\n"
+    printf "Или с правами Exit Node:\n"
+    printf "${YELLOW}/opt/bin/tailscale up --advertise-exit-node --accept-routes${NC}\n"
+    printf "${GREEN}==========================================================${NC}\n\n"
+else
+    printf "${RED}Ошибка запуска tailscaled. Проверьте логи /opt/var/log/tailscaled.log${NC}\n"
+    exit 1
+fi
