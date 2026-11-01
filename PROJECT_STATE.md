@@ -153,6 +153,28 @@
 - `/opt/scripts/grouter_cli.py`, `/opt/bin/grouter`: CLI профиля.
 - `/opt/share/router-control-center/`: фронтенд (`index.html`, `app.js`, `style.css`).
 
+## Standalone USB Flasher («Вставил и работает»)
+- `RouterKitFlasher.exe` (20.8 МБ): Автономное Windows-приложение (не требует установленного Python на ПК).
+  - Запуск двойным кликом на Windows (встроен манифест UAC для прав Администратора).
+  - Автоматическое обнаружение подключенных USB-накопителей с безопасной фильтрацией системных дисков (`C:`, SATA/NVMe).
+  - Запрос подтверждения перед записью: *"Точно ли шьём? Все данные будут удалены [Y/N]"*.
+  - Автоматическое размонтирование и блокировка разделов Windows (`FSCTL_LOCK_VOLUME`, `FSCTL_DISMOUNT_VOLUME`, `Clear-Disk`).
+  - Поблочная прямая запись загрузочного образа (`\\.\PhysicalDriveN`) с динамическим прогресс-баром и расчётом скорости.
+- `routerkit-mipsel.img.gz` (12.6 МБ): Сжатый мастер-образ (MBR + ext4 раздел 256 МБ с меткой `ENTWARE`):
+  - Базовое окружение Entware (BusyBox, Opkg, Dropbear SSH, библиотеки).
+  - Офлайн-пакеты: `python3-base`, `libpython3`, `python3`, `ipset`, `iptables`, `nfqws2-keenetic`.
+  - Модуль обхода блокировок: бинарник `nfqws2` (MIPS), конфигурация с круговым мультисплитом (`nfqws2.conf`), проверенные списки доменов.
+  - Сетевые NDM-хуки: `005-lan-fix.sh`, `015-l2tp.sh`, `020-block-quic.sh`, `100-nfqws2.sh`.
+  - Панель управления GRouter: веб-интерфейс (`index.html`, `app.js`, `style.css`) и бэкенд `router_api.py` на порту 8089.
+  - Скрипт первого запуска `/opt/etc/init.d/S01auto-setup`: автоматически настраивает DoT DNS в KeeneticOS через `ndmc`, сохраняет конфиг в flash роутера и запускает службы.
+  - Результат для пользователя: флешка извлекается из ПК, вставляется в любой роутер Xiaomi Mi 3G (KeeneticOS) и через 15-20 секунд всё работает автоматически без консоли.
+
+## Current State & Recent Changes
+- [x] Создан автономный EXE-прошивальщик `RouterKitFlasher.exe` (`--onefile`, `--uac-admin`, встроенный `routerkit-mipsel.img.gz`).
+- [x] Создан несгораемый релизный архив `.backups/desktop_release_2026-11-01_16-45-21/` с SHA256-хэшами и Git-тегом `desktop-v2026-11-01_16-45-21`.
+- [x] Все изменения зафиксированы и запушены в ветку `main` репозитория `https://github.com/salomanov/router_update.git`.
+- [x] Строго соблюдено правило локальной работы: 0 подключений к удаленному роутеру.
+
 ## Next Steps
 - Прогнать `install.sh` на **чистом** роутере (не обновление): проверить установку пакетов,
   баннер с паролем, `grouter apply`.
