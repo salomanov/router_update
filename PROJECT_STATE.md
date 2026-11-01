@@ -22,10 +22,17 @@
 - **Firmware:** KeeneticOS (KN-2410 / KN-1810 mod), Entware on `/opt`
 - **Shell:** BusyBox ash (нет `pipefail`, нет bash-массивов)
 - **DPI Bypass Engine:** `nfqws2-keenetic` (LUA zapret engine)
-- **Router Web API:** Python 3 (`python3-light`) on port **8089**
+- **Router Web API:** Python 3 (`python3-light`) on port **8089** (stack_size limited to 256KB)
 - **Web terminal:** `ttyd` on `127.0.0.1:7682`, public port **7681** served by an
-  authenticated TCP proxy inside `router_api.py`
+  authenticated TCP proxy inside `router_api.py` (8KB buffer)
 - **CLI:** `/opt/bin/grouter` (`plan | apply | status | update-all`)
+
+## Modular Project Architecture (RouterKit 2.0)
+- `install.sh`: Мастер-инсталлятор с интерактивным меню выбора (1: Полная, 2: Выборочная с вопросами по компонентам, 3-5: Быстрые режимы) и CLI-флагами (`--all`, `--dns`, `--nfqws2`, `--tg`, `--tailscale`, `--panel`).
+- `modules/`: Автономные инсталляторы компонентов (`01_dns_netfilter.sh`, `02_nfqws2.sh`, `03_tg_proxy.sh`, `04_tailscale.sh`, `05_dashboard.sh`).
+- `netfilter/`: NDM-хуки KeeneticOS (`005-lan-fix.sh`, `010-tailscale.sh`, `015-l2tp.sh`, `020-block-quic.sh`).
+- `core/`: Ядро сервисов панели (`api.py`, `opkg_update.py`, `S90router-api`).
+- `web/`: Веб-интерфейс панели (`index.html`, `app.js` с паузой опроса на `document.hidden`, `style.css`).
 
 ## Security Model (October 2026)
 - **Пароль по умолчанию — `Salomanov`** (требование владельца: домашняя панель, не выставляется

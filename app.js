@@ -443,6 +443,14 @@ function stopAutoRefresh() {
     }
 }
 
+// Pause polling when tab is hidden to save router CPU
+document.addEventListener("visibilitychange", () => {
+    isRefreshPaused = document.hidden;
+    if (!document.hidden && isConnected) {
+        fetchRouterStatus(false);
+    }
+});
+
 function pauseAutoRefresh(durationMs = 60000) {
     isRefreshPaused = true;
     setTimeout(() => { isRefreshPaused = false; }, durationMs);

@@ -1,193 +1,196 @@
 #!/bin/sh
 
-# ==================================================
-# GRouter Control Panel Auto-Installer for Entware
-# Authenticated management API + web dashboard
-#
-# No credentials are shipped with this script. The admin password is
-# generated on the router at first start and printed once below.
-# ==================================================
+# ==========================================================
+# GRouter Kit Master Auto-Installer for Keenetic / Entware
+# Upstream-First, Modular Architecture
+# ==========================================================
 
 GREEN='\033[0;32m'
+CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}Запуск установки GRouter Control Center...${NC}\n"
-
-# 0. Проверка среды Entware
-if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
-    printf "${RED}Ошибка: Среда Entware не найдена на этом роутере. Установка невозможна.${NC}\n"
+if [ "$(id -u)" != "0" ]; then
+    printf "${RED}Ошибка: Запустите установщик от пользователя root.${NC}\n"
     exit 1
 fi
 
-# 1. Остановка старой службы (если работает)
-API_PIDFILE="/opt/var/run/router-api.pid"
-INIT_SCRIPT="/opt/etc/init.d/S90router-api"
-
-if [ -f "$API_PIDFILE" ]; then
-    OLD_PID=$(cat "$API_PIDFILE" 2>/dev/null)
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-        printf "Обнаружен работающий экземпляр Router API (PID %s). Перезапускаем...\n" "$OLD_PID"
-        if [ -x "$INIT_SCRIPT" ]; then
-            "$INIT_SCRIPT" stop > /dev/null 2>&1
-        else
-            kill "$OLD_PID" 2>/dev/null
-        fi
-        sleep 1
-        kill -9 "$OLD_PID" 2>/dev/null || true
-        rm -f "$API_PIDFILE"
-    else
-        rm -f "$API_PIDFILE"
-    fi
+if [ ! -d "/opt" ] || [ ! -x "/opt/bin/opkg" ]; then
+    printf "${RED}Ошибка: Среда Entware (/opt) не найдена на этом роутере.${NC}\n"
+    printf "Подключите USB-накопитель и включите OPKG в веб-интерфейсе Keenetic.\n"
+    exit 1
 fi
 
-# 2. Установка зависимостей
-DEPS="python3-light python3-openssl python3-email python3-logging python3-urllib python3-codecs python3-idna curl wget-ssl ca-certificates ca-bundle"
-printf "Проверка зависимостей...\n"
-opkg update > /dev/null 2>&1
-opkg install $DEPS > /dev/null 2>&1
-
-# Установка ttyd для веб-терминала PuTTY
-printf "Установка Web-терминала ttyd (PuTTY в браузере)...\n"
-opkg install --force-overwrite ttyd > /dev/null 2>&1 || true
-
-# 3. Подготовка директорий
-mkdir -p /opt/scripts /opt/etc/init.d /opt/etc/grouter /opt/share/router-control-center \
-         /opt/share/www /opt/var/run /opt/var/log
-
-# 4. Скачивание актуальных файлов с GitHub
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
+TMP_DIR="/opt/tmp"
+mkdir -p "$TMP_DIR"
 
-fetch() {
-    # fetch <url> <destination>; fails loudly instead of leaving an empty file
-    if ! curl -fsSL -o "$2" "$1"; then
-        printf "${RED}Ошибка скачивания: %s${NC}\n" "$1"
-        rm -f "$2"
-        exit 1
+run_module() {
+    name="$1"
+    url="$2"
+    file="$TMP_DIR/$(basename "$url")"
+
+    printf "\n${YELLOW}>>> Запуск: ${name}...${NC}\n"
+    rm -f "$file"
+    if ! curl -fsSL --max-time 30 -o "$file" "${url}${CACHE_BUST}"; then
+        printf "${RED}[ОШИБКА] Не удалось скачать модуль: ${url}${NC}\n"
+        return 1
     fi
-    if [ ! -s "$2" ]; then
-        printf "${RED}Скачанный файл пуст: %s${NC}\n" "$1"
-        rm -f "$2"
-        exit 1
+    if [ ! -s "$file" ]; then
+        printf "${RED}[ОШИБКА] Скачанный файл пуст: ${url}${NC}\n"
+        rm -f "$file"
+        return 1
     fi
+
+    sh "$file"
+    res=$?
+    rm -f "$file"
+    return $res
 }
 
-printf "Скачивание бэкенда API и автозапуска...\n"
-fetch "${REPO_RAW}/router_api.py${CACHE_BUST}" /opt/scripts/router_api.py
-curl -fsSL -o /opt/scripts/opkg_update.py "${REPO_RAW}/opkg_update.py${CACHE_BUST}" 2>/dev/null \
-    || printf "${YELLOW}Внимание: opkg_update.py не скачан, opkg update будет обычным.${NC}\n"
-fetch "${REPO_RAW}/S90router-api${CACHE_BUST}" /opt/etc/init.d/S90router-api
+# --- Проверка аргументов командной строки ---
+DO_DNS=0
+DO_NFQWS=0
+DO_TG=0
+DO_TAILSCALE=0
+DO_PANEL=0
+BATCH_MODE=0
 
-printf "Скачивание веб-интерфейса GRouter...\n"
-fetch "${REPO_RAW}/index.html${CACHE_BUST}" /opt/share/router-control-center/index.html
-fetch "${REPO_RAW}/style.css${CACHE_BUST}" /opt/share/router-control-center/style.css
-fetch "${REPO_RAW}/app.js${CACHE_BUST}" /opt/share/router-control-center/app.js
+for arg in "$@"; do
+    case "$arg" in
+        --all)
+            DO_DNS=1; DO_NFQWS=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1; BATCH_MODE=1
+            ;;
+        --dns)
+            DO_DNS=1; BATCH_MODE=1
+            ;;
+        --nfqws2)
+            DO_NFQWS=1; BATCH_MODE=1
+            ;;
+        --tg)
+            DO_TG=1; BATCH_MODE=1
+            ;;
+        --tailscale)
+            DO_TAILSCALE=1; BATCH_MODE=1
+            ;;
+        --panel)
+            DO_PANEL=1; BATCH_MODE=1
+            ;;
+        -h|--help)
+            printf "Использование: sh install.sh [ОПЦИИ]\n"
+            printf "Опции:\n"
+            printf "  --all        Установить все компоненты сразу\n"
+            printf "  --dns        Только защищенный DNS и сетевые правила NDM\n"
+            printf "  --nfqws2     Только nfqws2 Anti-DPI + Web UI (порт 90)\n"
+            printf "  --tg         Только Telegram WebSocket прокси (порт 1443)\n"
+            printf "  --tailscale  Только Tailscale VPN\n"
+            printf "  --panel      Только GRouter Панель (порт 8089) и терминал\n"
+            printf "Без опций — интерактивное меню выбора.\n"
+            exit 0
+            ;;
+    esac
+done
 
-printf "Скачивание профиля пакетов и CLI...\n"
-curl -fsSL -o /opt/etc/grouter/profile.json "${REPO_RAW}/configs/profile.json${CACHE_BUST}" 2>/dev/null \
-    || printf "${YELLOW}Внимание: configs/profile.json не скачан — 'grouter plan' покажет пустой профиль.${NC}\n"
-fetch "${REPO_RAW}/grouter_cli.py${CACHE_BUST}" /opt/scripts/grouter_cli.py
+# --- Интерактивное меню ---
+if [ $BATCH_MODE -eq 0 ]; then
+    printf "${CYAN}==========================================================${NC}\n"
+    printf "${CYAN}             GRouter Kit — Меню Установки                 ${NC}\n"
+    printf "${CYAN}==========================================================${NC}\n"
+    printf "  ${GREEN}1)${NC} Полная установка (Рекомендуется — всё включено)\n"
+    printf "  ${GREEN}2)${NC} Выборочная установка (выбрать нужные компоненты)\n"
+    printf "  ${GREEN}3)${NC} Только сетевой клей и защищенный DNS (DoH/DoT, QUIC/MSS fix)\n"
+    printf "  ${GREEN}4)${NC} Только nfqws2 Anti-DPI + Web UI (порт 90)\n"
+    printf "  ${GREEN}5)${NC} Только панель управления GRouter (порт 8089) и терминал\n"
+    printf "  ${RED}0)${NC} Выход\n"
+    printf "${CYAN}----------------------------------------------------------${NC}\n"
+    printf "Выберите вариант [1-5, default: 1]: "
+    read -r CHOICE
 
-# Очищаем /opt/share/www от посторонних файлов, чтобы исключить конфликты с nfqws web на порту 90
-rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null || true
+    [ -z "$CHOICE" ] && CHOICE="1"
 
-# 5. ttyd: только loopback. Публичный порт 7681 обслуживает router_api.py,
-# который проверяет сессию панели (иначе это был бы открытый root-shell).
-TTYD_SHELL="/opt/bin/sh"
-[ -x "$TTYD_SHELL" ] || TTYD_SHELL="/bin/sh"
+    case "$CHOICE" in
+        1)
+            DO_DNS=1; DO_NFQWS=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
+            ;;
+        2)
+            printf "\n${YELLOW}--- Настройка компонентов ---${NC}\n"
+            
+            printf "1. Настроить защищенный DNS (DoT/DoH) и NDM-клей (блок QUIC, сброс IPv6, MSS)? [Y/n]: "
+            read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_DNS=1
 
-cat << EOFTTYD > /opt/etc/init.d/S96ttyd
-#!/bin/sh
+            printf "2. Установить nfqws2 Anti-DPI + Web UI (порт 90)? [Y/n]: "
+            read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_NFQWS=1
 
-ENABLED=yes
-PROCS=ttyd
-ARGS="-W -i 127.0.0.1 -p 7682 ${TTYD_SHELL}"
-PREARGS=""
-DESC="Web Terminal (ttyd, loopback only)"
-PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            printf "3. Установить Telegram WebSocket прокси (порт 1443)? [y/N]: "
+            read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_TG=1
 
-. /opt/etc/init.d/rc.func
-EOFTTYD
-chmod +x /opt/etc/init.d/S96ttyd
+            printf "4. Установить Tailscale VPN? [y/N]: "
+            read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_TAILSCALE=1
 
-# Старый скрипт с паролем в открытом виде больше не нужен
-rm -f /opt/scripts/ttyd_shell.sh 2>/dev/null || true
-
-# 5.1 Конфигурация lighttpd для nfqws-web (порт 90).
-# Аутентификация nfqws-web НЕ отключается: это UI управления firewall/desync.
-if [ -d "/opt/etc/lighttpd" ]; then
-    mkdir -p /opt/etc/lighttpd/conf.d
-    rm -f /opt/share/www/index.html /opt/share/www/app.js /opt/share/www/style.css 2>/dev/null || true
-    cat << 'EOFLIGHT' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
-server.port := 90
-
-cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
-static-file.exclude-extensions += ( ".php" )
-setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
-index-file.names := ( "index.html" )
-server.error-handler-404 = "/nfqws/index.html"
-url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
-EOFLIGHT
-
-    [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart > /dev/null 2>&1 || true
+            printf "5. Установить панель управления GRouter (порт 8089) и веб-терминал? [Y/n]: "
+            read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_PANEL=1
+            ;;
+        3)
+            DO_DNS=1
+            ;;
+        4)
+            DO_NFQWS=1
+            ;;
+        5)
+            DO_PANEL=1
+            ;;
+        0)
+            printf "Отмена установки.\n"
+            exit 0
+            ;;
+        *)
+            printf "${RED}Неверный выбор. Прерывание.${NC}\n"
+            exit 1
+            ;;
+    esac
 fi
 
-# 6. CLI /opt/bin/grouter -> plan | apply | status | update-all
-cat << 'EOFCLI' > /opt/bin/grouter
-#!/bin/sh
-exec /opt/bin/python3 /opt/scripts/grouter_cli.py "$@"
-EOFCLI
-chmod 755 /opt/bin/grouter
+# --- Запуск выбранных модулей по оптимальному порядку ---
+ERRORS=0
 
-# 7. Права и запуск
-chmod 755 /opt/scripts/router_api.py
-chmod 755 /opt/scripts/grouter_cli.py
-chmod 755 /opt/scripts/opkg_update.py 2>/dev/null || true
-chmod 755 /opt/etc/init.d/S90router-api
-
-# 7.1 Необязательные параметры пароля. Читаются только при ПЕРВОМ старте
-# (иначе в /opt остался бы открытый пароль рядом с готовым хэшем).
-if [ ! -f "/opt/etc/router-api.auth" ]; then
-    if [ -n "$GROUTER_DEFAULT_PASSWORD" ]; then
-        umask 077
-        printf '%s\n' "$GROUTER_DEFAULT_PASSWORD" > /opt/etc/grouter/default_password
-        umask 022
-        printf "Задан свой пароль администратора (GROUTER_DEFAULT_PASSWORD).\n"
-    fi
-    if [ -n "$GROUTER_RANDOM_PASSWORD" ]; then
-        : > /opt/etc/grouter/random_password
-        printf "Включён режим одноразового случайного пароля.\n"
-    fi
+if [ $DO_DNS -eq 1 ]; then
+    run_module "Защищенный DNS и сетевой клей" "${REPO_RAW}/modules/01_dns_netfilter.sh" || ERRORS=$((ERRORS + 1))
 fi
 
-printf "Запуск служб...\n"
-/opt/etc/init.d/S96ttyd restart > /dev/null 2>&1 || true
-/opt/etc/init.d/S90router-api restart
+if [ $DO_NFQWS -eq 1 ]; then
+    run_module "nfqws2 Anti-DPI и Web UI (порт 90)" "${REPO_RAW}/modules/02_nfqws2.sh" || ERRORS=$((ERRORS + 1))
+fi
 
-# 8. Пароль: стандартный сохраняется при первом старте, одноразовый — только в secure-режиме
-sleep 2
-INITIAL_PW_FILE="/opt/etc/grouter/initial_password"
-LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
-[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -o 'src [0-9.]*' | awk '{print $2}')
+if [ $DO_TG -eq 1 ]; then
+    run_module "Telegram Proxy (порт 1443)" "${REPO_RAW}/modules/03_tg_proxy.sh" || ERRORS=$((ERRORS + 1))
+fi
+
+if [ $DO_TAILSCALE -eq 1 ]; then
+    run_module "Tailscale VPN" "${REPO_RAW}/modules/04_tailscale.sh" || ERRORS=$((ERRORS + 1))
+fi
+
+if [ $DO_PANEL -eq 1 ]; then
+    run_module "GRouter Панель и Web-терминал" "${REPO_RAW}/modules/05_dashboard.sh" || ERRORS=$((ERRORS + 1))
+fi
+
+LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
 [ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
 
-printf "\n${GREEN}==========================================================${NC}\n"
-printf "${GREEN}Установка GRouter завершена!${NC}\n"
-printf "Панель управления: ${GREEN}http://%s:8089/${NC}\n" "$LAN_IP"
-printf "Веб-терминал PuTTY: ${GREEN}http://%s:7681/${NC} (только после входа в панель)\n" "$LAN_IP"
-printf "Логин: ${YELLOW}admin${NC}\n"
-
-if [ -s "$INITIAL_PW_FILE" ]; then
-    printf "Одноразовый пароль: ${YELLOW}%s${NC}\n" "$(cat "$INITIAL_PW_FILE")"
-    printf "${YELLOW}Смените его при первом входе — до смены панель работает в ограниченном режиме.${NC}\n"
+printf "\n${CYAN}==========================================================${NC}\n"
+if [ $ERRORS -eq 0 ]; then
+    printf "${GREEN}      УСТАНОВКА ВЫБРАННЫХ КОМПОНЕНТОВ УСПЕШНО ЗАВЕРШЕНА!  ${NC}\n"
 else
-    printf "Пароль: ${YELLOW}Salomanov${NC} (стандартный, менять не обязательно)\n"
-    printf "Сменить можно кнопкой с ключом в шапке панели.\n"
-    printf "${YELLOW}Если пароль уже был изменён ранее и забыт: удалить${NC}\n"
-    printf "${YELLOW}/opt/etc/router-api.auth и перезапустить S90router-api.${NC}\n"
+    printf "${YELLOW}      УСТАНОВКА ЗАВЕРШЕНА С ОШИБКАМИ (ошибок: %d)         ${NC}\n" "$ERRORS"
 fi
+printf "${CYAN}==========================================================${NC}\n"
 
-printf "\nПрофиль пакетов: ${GREEN}grouter plan${NC} (проверить) / ${GREEN}grouter apply${NC} (доставить)\n"
-printf "${GREEN}==========================================================${NC}\n\n"
+[ $DO_PANEL -eq 1 ] && printf "👉 Панель управления: ${GREEN}http://%s:8089/${NC} (admin / Salomanov)\n" "$LAN_IP"
+[ $DO_PANEL -eq 1 ] && printf "👉 Веб-терминал PuTTY: ${GREEN}http://%s:7681/${NC} (после входа в панель)\n" "$LAN_IP"
+[ $DO_NFQWS -eq 1 ] && printf "👉 Веб-панель nfqws: ${GREEN}http://%s:90/${NC}\n" "$LAN_IP"
+[ $DO_TG -eq 1 ] && printf "👉 Telegram MTProto прокси: порт 1443\n"
+[ $DO_TAILSCALE -eq 1 ] && printf "👉 Tailscale: /opt/bin/tailscale up\n"
+printf "\n"
+exit $ERRORS

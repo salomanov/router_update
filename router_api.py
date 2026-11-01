@@ -25,6 +25,12 @@ import shlex
 import tempfile
 import threading
 import signal
+
+# Limit thread stack size to 256KB to save RAM on 128MB MIPS
+try:
+    threading.stack_size(256 * 1024)
+except Exception:
+    pass
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, ThreadingMixIn
 
@@ -1963,7 +1969,7 @@ def _relay_sockets(left, right):
             if not readable:
                 return
             for sock in readable:
-                chunk = sock.recv(65536)
+                chunk = sock.recv(8192)
                 if not chunk:
                     return
                 (right if sock is left else left).sendall(chunk)
