@@ -307,7 +307,7 @@ def main():
         print("     скрипт автонастройки S01auto-setup и поднимет все службы.")
         print("")
         print("Что уже работает сразу из коробки:")
-        print("  • Защищённый DNS-over-TLS (Cloudflare 1.1.1.1 + Yandex 77.88.8.8)")
+        print("  • SmartDNS DoT/DoH (GeoHide, dns-ai: разблокировка ChatGPT, OpenAI, Gemini без VPN)")
         print("  • Обход блокировок nfqws2 (YouTube, Discord и др. без замедления)")
         print("  • Веб-панель управления GRouter: http://192.168.1.1:8089/")
         print("  • Доступ по SSH (Dropbear): root@192.168.1.1 (порт 22)")
