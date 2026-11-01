@@ -1,15 +1,49 @@
 #!/bin/sh
 
 # ==========================================================
-# Module 04: Tailscale Mesh VPN & Exit Node
+# Module 06: Tailscale Mesh VPN & Exit Node
+# - Installs tailscale and configures TUN & iptables
+# - Creates /opt/bin/tailscale-status for easy status & login URL recall
 # ==========================================================
 
 GREEN='\033[0;32m'
+CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}=== [4/5] Установка Tailscale (VPN Exit Node) ===${NC}\n"
+show_status() {
+    printf "${CYAN}=== Статус Tailscale VPN ===${NC}\n"
+    if pgrep tailscaled >/dev/null 2>&1; then
+        printf "Служба tailscaled: ${GREEN}Работает${NC}\n"
+    else
+        printf "Служба tailscaled: ${RED}Остановлена${NC}\n"
+        return 1
+    fi
+
+    if [ -x "/opt/bin/tailscale" ]; then
+        STATUS_OUT=$(/opt/bin/tailscale status 2>&1)
+        IP_OUT=$(/opt/bin/tailscale ip -4 2>/dev/null)
+        if [ -n "$IP_OUT" ]; then
+            printf "Авторизация: ${GREEN}Успешно подключен${NC}\n"
+            printf "Tailscale IP: ${YELLOW}%s${NC}\n" "$IP_OUT"
+            printf "\nТекущие узлы в сети Tailscale:\n"
+            echo "$STATUS_OUT" | head -n 10
+        else
+            printf "Авторизация: ${YELLOW}Требуется вход${NC}\n\n"
+            printf "Для авторизации или получения ссылки выполните:\n"
+            printf "👉 ${GREEN}/opt/bin/tailscale up --advertise-exit-node --accept-routes${NC}\n"
+        fi
+    fi
+    printf "\n"
+}
+
+if [ "$1" = "--status" ] || [ "$1" = "status" ]; then
+    show_status
+    exit 0
+fi
+
+printf "${GREEN}=== Установка Tailscale (VPN Exit Node) ===${NC}\n"
 
 if [ "$(id -u)" != "0" ]; then
     printf "${RED}Ошибка: Скрипт должен быть запущен с правами root.${NC}\n"
@@ -31,7 +65,6 @@ if [ -f "/opt/tmp/opkg.lock" ]; then
 fi
 
 # 2. Настройка TUN-интерфейса и IP Forwarding
-printf "${YELLOW}Настройка TUN-интерфейса и сетевого форвардинга...${NC}\n"
 mkdir -p /dev/net /opt/var/lib/tailscale /opt/var/run/tailscale /opt/var/log /opt/etc/init.d /opt/etc/ndm/netfilter.d
 if [ ! -c /dev/net/tun ]; then
     mknod /dev/net/tun c 10 200
@@ -105,15 +138,18 @@ if [ -s "/opt/etc/ndm/netfilter.d/010-tailscale.sh" ]; then
     /opt/etc/ndm/netfilter.d/010-tailscale.sh >/dev/null 2>&1 || true
 fi
 
-# 6. Запуск службы
+# 6. Создание вспомогательной утилиты /opt/bin/tailscale-status
+cat << 'EOFTS' > /opt/bin/tailscale-status
+#!/bin/sh
+sh /opt/scripts/modules/06_tailscale.sh --status 2>/dev/null || /opt/bin/tailscale status
+EOFTS
+chmod 755 /opt/bin/tailscale-status 2>/dev/null || true
+
+# 7. Запуск службы
 /opt/etc/init.d/S06tailscale restart >/dev/null 2>&1
 sleep 2
 
-if pgrep tailscaled >/dev/null; then
-    printf "${GREEN}[OK] Tailscale успешно запущен!${NC}\n"
-    printf "Для подключения устройства выполните: ${YELLOW}/opt/bin/tailscale up --advertise-exit-node --accept-routes${NC}\n\n"
-else
-    printf "${RED}Ошибка запуска tailscaled. Проверьте логи /opt/var/log/tailscaled.log${NC}\n"
-    exit 1
-fi
+printf "${GREEN}[OK] Служба Tailscale успешно установлена и запущена!${NC}\n\n"
+show_status
+printf "Команда для проверки статуса в любое время: ${YELLOW}tailscale-status${NC}\n\n"
 exit 0

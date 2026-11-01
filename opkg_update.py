@@ -188,29 +188,39 @@ def _ranged_download(url, tmp_path, total_size):
 
 
 def download_chunked(url, target_path):
-    """Download one Packages.gz and atomically replace the opkg list."""
-    total_size = get_content_length(url)
+    """Download Packages.gz.
+    First tests full-speed download. If DPI/network cuts it off,
+    automatically activates 30KB chunked Range bypass.
+    """
     tmp_path = target_path + ".tmp"
+    total_size = get_content_length(url)
 
+    # 1. Fast path: try full-speed single-stream download first
     try:
-        if total_size and total_size <= CHUNK_SIZE:
-            _simple_download(url, tmp_path)
-        else:
-            try:
-                _ranged_download(url, tmp_path, total_size)
-            except RangeNotSupported as e:
-                print("Range not supported (%s); falling back to a full download." % e)
-                _simple_download(url, tmp_path)
-
-        try:
-            with gzip.open(tmp_path, "rb") as gz:
-                gz.read(1024)
-        except Exception as e:
-            raise ValueError("gzip verification failed: %s" % e)
-
+        _simple_download(url, tmp_path)
+        with gzip.open(tmp_path, "rb") as gz:
+            gz.read(1024)
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         shutil.move(tmp_path, target_path)
         return os.path.getsize(target_path)
+    except Exception as probe_err:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+        print("Direct download interrupted (%s); switching to 30KB chunked DPI bypass..." % probe_err)
+
+    # 2. DPI fallback: download in small 30KB chunks via HTTP Range
+    try:
+        _ranged_download(url, tmp_path, total_size)
+        with gzip.open(tmp_path, "rb") as gz:
+            gz.read(1024)
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.move(tmp_path, target_path)
+        return os.path.getsize(target_path)
+    except Exception as e:
+        raise ValueError("chunked download verification failed: %s" % e)
     finally:
         if os.path.exists(tmp_path):
             try:

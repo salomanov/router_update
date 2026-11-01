@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==========================================================
-# Module 05: GRouter Dashboard (Port 8089) & Web Terminal (Port 7681)
+# Module 07: GRouter Dashboard (Port 8089) & Web Terminal (Port 7681)
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}=== [5/5] Установка GRouter Панели и Web-терминала ===${NC}\n"
+printf "${GREEN}=== Установка GRouter Панели и Web-терминала PuTTY ===${NC}\n"
 
 if [ "$(id -u)" != "0" ]; then
     printf "${RED}Ошибка: Скрипт должен быть запущен с правами root.${NC}\n"
@@ -42,8 +42,8 @@ opkg install $DEPS >/dev/null 2>&1
 opkg install --force-overwrite ttyd >/dev/null 2>&1 || true
 
 # 3. Подготовка директорий
-mkdir -p /opt/scripts /opt/etc/init.d /opt/etc/grouter /opt/share/router-control-center \
-         /opt/var/run /opt/var/log /opt/tmp
+mkdir -p /opt/scripts /opt/scripts/modules /opt/etc/init.d /opt/etc/grouter \
+         /opt/share/router-control-center /opt/var/run /opt/var/log /opt/tmp /opt/bin
 
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"

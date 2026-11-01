@@ -1,10 +1,9 @@
 #!/bin/sh
 
 # ==========================================================
-# Module 02: nfqws2 Anti-DPI & Web UI (Port 90)
-# - Official nfqws2-keenetic + nfqws-keenetic-web packages
-# - Standard circular multisplit profile (out of the box)
-# - Lighttpd isolated on port 90
+# Module 03: nfqws2 Anti-DPI Engine (Headless / Core)
+# - Official nfqws2-keenetic package (without lighttpd/php)
+# - Standard circular multisplit profile
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -12,7 +11,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-printf "${GREEN}=== [2/5] Установка nfqws2 Anti-DPI и Web UI ===${NC}\n"
+printf "${GREEN}=== Установка nfqws2 Anti-DPI (Основной движок) ===${NC}\n"
 
 if [ "$(id -u)" != "0" ]; then
     printf "${RED}Ошибка: Скрипт должен быть запущен с правами root.${NC}\n"
@@ -33,20 +32,18 @@ if [ -f "/opt/tmp/opkg.lock" ]; then
     fi
 fi
 
-# 2. Добавление официальных репозиториев nfqws
-printf "${YELLOW}Настройка официальных репозиториев nfqws...${NC}\n"
+# 2. Добавление репозитория nfqws2
 mkdir -p /opt/etc/opkg
 echo "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/all" > /opt/etc/opkg/nfqws2-keenetic.conf
-echo "src/gz nfqws-keenetic-web https://nfqws.github.io/nfqws-keenetic-web/all" > /opt/etc/opkg/nfqws-keenetic-web.conf
 
-# 3. Обновление списков пакетов (устойчиво к блокировкам)
-printf "${YELLOW}Установка пакетов nfqws2-keenetic и nfqws-keenetic-web...${NC}\n"
+# 3. Установка пакета nfqws2-keenetic
+printf "${YELLOW}Установка пакета nfqws2-keenetic через OPKG...${NC}\n"
 if [ -x "/opt/scripts/opkg_update.py" ]; then
     python3 /opt/scripts/opkg_update.py >/dev/null 2>&1 || opkg update >/dev/null 2>&1
 else
     opkg update >/dev/null 2>&1
 fi
-opkg install nfqws2-keenetic nfqws-keenetic-web >/dev/null 2>&1
+opkg install nfqws2-keenetic >/dev/null 2>&1
 
 if [ ! -x "/opt/usr/bin/nfqws2" ]; then
     printf "${RED}Ошибка: Бинарный файл /opt/usr/bin/nfqws2 не найден после установки.${NC}\n"
@@ -61,24 +58,9 @@ if [ -n "$DEF_IFACE" ] && [ -f "/opt/etc/nfqws2/nfqws2.conf" ]; then
     sed -i -E "s#^ISP_INTERFACE=\".+\"#ISP_INTERFACE=\"$DEF_IFACE\"#" /opt/etc/nfqws2/nfqws2.conf
 fi
 
-# 5. Изоляция lighttpd для nfqws-web строго на порту 90
-if [ -d "/opt/etc/lighttpd" ]; then
-    mkdir -p /opt/etc/lighttpd/conf.d
-    cat << 'EOFLIGHT' > /opt/etc/lighttpd/conf.d/80-nfqws.conf
-server.port := 90
-cgi.assign += ( ".php" => "/opt/bin/php-cgi" )
-static-file.exclude-extensions += ( ".php" )
-setenv.set-environment = ( "PATH" => "/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin" )
-index-file.names := ( "index.html" )
-server.error-handler-404 = "/nfqws/index.html"
-url.rewrite-once = ( "^/(.*)" => "/nfqws/$1" )
-EOFLIGHT
-    [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1 || true
-fi
-
-# 6. Запуск nfqws2
+# 5. Запуск nfqws2
 if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
     /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
-    printf "${GREEN}[OK] nfqws2 и Web UI (порт 90) успешно запущены!${NC}\n\n"
+    printf "${GREEN}[OK] nfqws2 успешно запущен!${NC}\n\n"
 fi
 exit 0

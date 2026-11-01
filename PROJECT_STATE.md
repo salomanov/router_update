@@ -28,10 +28,17 @@
 - **CLI:** `/opt/bin/grouter` (`plan | apply | status | update-all`)
 
 ## Modular Project Architecture (RouterKit 2.0)
-- `install.sh`: Мастер-инсталлятор с интерактивным меню выбора (1: Полная, 2: Выборочная с вопросами по компонентам, 3-5: Быстрые режимы) и CLI-флагами (`--all`, `--dns`, `--nfqws2`, `--tg`, `--tailscale`, `--panel`).
-- `modules/`: Автономные инсталляторы компонентов (`01_dns_netfilter.sh`, `02_nfqws2.sh`, `03_tg_proxy.sh`, `04_tailscale.sh`, `05_dashboard.sh`).
+- `install.sh`: Мастер-инсталлятор с интерактивным меню (1: Полная, 2: Выборочная, 3-8: Быстрые режимы) и CLI-флагами (`--all`, `--dns`, `--netfilter`, `--nfqws2`, `--nfqws-web`, `--tg`, `--tailscale`, `--panel`).
+- `modules/`: 7 автономных инсталляторов компонентов:
+  - `01_dns.sh`: Защищенный DoT/DoH в KeeneticOS.
+  - `02_netfilter_glue.sh`: NDM-хуки (перехват DNS 53, блок QUIC, сброс IPv6, MSS clamp).
+  - `03_nfqws2.sh`: Движок nfqws2 Anti-DPI (без веб-панели и lighttpd).
+  - `04_nfqws_web.sh`: Веб-панель nfqws (порт 90) на lighttpd+php.
+  - `05_tg_proxy.sh`: Telegram WebSocket прокси (порт 1443) + команда `tg-proxy-link`.
+  - `06_tailscale.sh`: Tailscale VPN + команда `tailscale-status`.
+  - `07_dashboard.sh`: GRouter Панель (порт 8089) и терминал PuTTY (порт 7681).
 - `netfilter/`: NDM-хуки KeeneticOS (`005-lan-fix.sh`, `010-tailscale.sh`, `015-l2tp.sh`, `020-block-quic.sh`).
-- `core/`: Ядро сервисов панели (`api.py`, `opkg_update.py`, `S90router-api`).
+- `core/`: Ядро сервисов (`api.py` со stack_size 256KB, `opkg_update.py` с автопроверкой скорости перед Range, `S90router-api`).
 - `web/`: Веб-интерфейс панели (`index.html`, `app.js` с паузой опроса на `document.hidden`, `style.css`).
 
 ## Security Model (October 2026)
