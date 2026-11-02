@@ -172,6 +172,9 @@
 ## Current State & Recent Changes
 - [x] Создан автономный EXE-прошивальщик `RouterKitFlasher.exe` (`--onefile`, `--uac-admin`, встроенный `routerkit-mipsel.img.gz`).
 - [x] Создан несгораемый релизный архив `.backups/desktop_release_2026-11-01_16-45-21/` с SHA256-хэшами и Git-тегом `desktop-v2026-11-01_16-45-21`.
+- [x] Устранён спам бэктрейсов Tailscale IPv6 (`sysctl -w net.ipv6.conf.tailscale0.disable_ipv6=1` в `/opt/etc/init.d/S06tailscale`).
+- [x] Удален неработающий DoH/DoT апстрим `dns.malw.link` из `dns-proxy` в KeeneticOS (`no https upstream`, `no tls upstream`).
+- [x] Исправлен доступ к `4pda.to`, `bambulab.com` и `makerworld.com`: домены убраны из `user.list`/`auto.list` и добавлены в `exclude.list`, предотвращая сброс соединений Cloudflare (`ERR_CONNECTION_RESET`).
 - [x] Все изменения зафиксированы и запушены в ветку `main` репозитория `https://github.com/salomanov/router_update.git`.
 - [x] Строго соблюдено правило локальной работы: 0 подключений к удаленному роутеру.
 
