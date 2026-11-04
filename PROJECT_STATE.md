@@ -27,6 +27,18 @@
   authenticated TCP proxy inside `router_api.py` (8KB buffer)
 - **CLI:** `/opt/bin/grouter` (`plan | apply | status | update-all`)
 
+## Router Ecosystem & Shared Ports Map (Связи сервисов на роутере)
+> **ВАЖНО**: Физический роутер (192.168.1.1) делит сеть между несколькими независимыми проектами. Любые изменения портов или прокси-демонов должны учитываться смежными сервисами:
+- **8089**: GRouter Web API (`router_api.py`, проект `Router_api` / `Desktop\Роутер`)
+- **7681**: Терминал ttyd (`ttyd` на 7682, TCP proxy через `router_api.py`)
+- **90**: Веб-панель nfqws (`lighttpd + php`)
+- **1443**: `tg-ws-proxy` (WebSocket-прокси для Telegram)
+- **8480**: `usque` (Cloudflare MASQUE QUIC SOCKS5, `cdnjs.cloudflare.com`, `--always-reconnect`)
+- **12345**: `redsocks` (прозрачный TCP-редирект трафика ipset `WARP_YT` в SOCKS5 `8480`)
+- **8085**: `nanoopds` (Книжный сервер NanoOPDS + Telegram-бот `@SalomanovBooks_Bot`, проект `E:\Projects\Opds`)
+  - *Сетевая связь:* Telegram-бот ходит в `api.telegram.org` через SOCKS5 `192.168.1.1:8480` по IPv4 (`149.154.167.220:443`).
+- **1883**: Mosquitto MQTT / Tuya (проект `E:\Projects\tuya_mqtt_calibrator`)
+
 ## Modular Project Architecture (RouterKit 2.0)
 - `install.sh`: Мастер-инсталлятор с интерактивным меню (1: Полная, 2: Выборочная, 3-8: Быстрые режимы) и CLI-флагами (`--all`, `--dns`, `--netfilter`, `--nfqws2`, `--nfqws-web`, `--tg`, `--tailscale`, `--panel`).
 - `modules/`: 7 автономных инсталляторов компонентов:
