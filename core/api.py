@@ -34,7 +34,7 @@ except Exception:
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, ThreadingMixIn
 
-PORT = 8089
+PORT = int(os.environ.get("GROUTER_PORT", 8089))
 BIND_ADDR = os.environ.get("GROUTER_BIND", "0.0.0.0")
 AUTH_FILE = "/opt/etc/router-api.auth"
 SESSIONS_FILE = "/opt/etc/router-api.sessions"
@@ -47,8 +47,8 @@ DEFAULT_PASSWORD_FILE = "/opt/etc/grouter/default_password"
 RANDOM_PASSWORD_FILE = "/opt/etc/grouter/random_password"
 
 # ttyd listens on loopback only; the public port is served by an authenticated TCP proxy
-TTYD_INTERNAL_PORT = 7682
-TTYD_PUBLIC_PORT = 7681
+TTYD_INTERNAL_PORT = int(os.environ.get("TTYD_INTERNAL_PORT", 7682))
+TTYD_PUBLIC_PORT = int(os.environ.get("TTYD_PUBLIC_PORT", 7681))
 SESSION_COOKIE = "grouter_session"
 
 # Fallbacks for local / dev testing
@@ -91,6 +91,86 @@ _LOGIN_ATTEMPTS = {}
 _LOGIN_LOCK = threading.Lock()
 _LONG_OP_LOCK = threading.Lock()
 _EXEC_LOCK = threading.Lock()
+
+# --- Asynchronous Task Runner Subsystem (Live Streaming) ---
+class TaskRunner:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.current_task = None
+
+    def start_task(self, name, target_func, *args, **kwargs):
+        with self.lock:
+            if self.current_task and self.current_task.get("status") == "running":
+                # Safety timeout: 45 minutes
+                if time.time() - self.current_task.get("start_time", 0) < 2700:
+                    return None, "Другая операция уже выполняется"
+            
+            task_id = secrets.token_hex(6)
+            task = {
+                "id": task_id,
+                "name": name,
+                "status": "running",
+                "start_time": time.time(),
+                "logs": [f"[{time.strftime('%H:%M:%S')}] Инициализация задачи: {name}..."],
+                "result": None,
+                "error": None
+            }
+            self.current_task = task
+
+        def worker():
+            try:
+                def log_fn(msg):
+                    if not msg:
+                        return
+                    with self.lock:
+                        if self.current_task and self.current_task["id"] == task_id:
+                            timestamp = time.strftime('%H:%M:%S')
+                            clean_msg = str(msg).rstrip()
+                            self.current_task["logs"].append(f"[{timestamp}] {clean_msg}")
+                            # Keep maximum 500 lines to prevent RAM exhaustion on MIPS 128MB
+                            if len(self.current_task["logs"]) > 500:
+                                self.current_task["logs"] = self.current_task["logs"][-500:]
+
+                res = target_func(log_callback=log_fn, *args, **kwargs)
+                with self.lock:
+                    if self.current_task and self.current_task["id"] == task_id:
+                        self.current_task["status"] = "completed"
+                        self.current_task["result"] = res
+                        self.current_task["logs"].append(f"[{time.strftime('%H:%M:%S')}] ✅ Операция успешно завершена!")
+            except Exception as e:
+                logger.error(f"Task '{name}' error: {e}", exc_info=True)
+                with self.lock:
+                    if self.current_task and self.current_task["id"] == task_id:
+                        self.current_task["status"] = "error"
+                        self.current_task["error"] = str(e)
+                        self.current_task["logs"].append(f"[{time.strftime('%H:%M:%S')}] ❌ ОШИБКА: {e}")
+            finally:
+                invalidate_caches()
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        return task_id, None
+
+    def get_task_status(self, after_line=0):
+        with self.lock:
+            if not self.current_task:
+                return {"active": False}
+            t = self.current_task
+            total = len(t["logs"])
+            new_lines = t["logs"][after_line:] if after_line < total else []
+            return {
+                "active": True,
+                "id": t["id"],
+                "name": t["name"],
+                "status": t["status"],
+                "elapsed": int(time.time() - t["start_time"]),
+                "total_lines": total,
+                "logs": new_lines,
+                "result": t.get("result"),
+                "error": t.get("error")
+            }
+
+_TASK_RUNNER = TaskRunner()
 
 # Master Catalog of Supported Applications & Services
 KNOWN_SERVICES = {
@@ -146,13 +226,15 @@ KNOWN_SERVICES = {
     },
     "mosquitto": {
         "name": "Mosquitto MQTT",
-        "desc": "Брокер сообщений для умного дома",
+        "desc": "Брокер сообщений для умного дома (порт 1883)",
         "script_prefixes": ["S80mosquitto"],
         "proc": "mosquitto",
         "package": "mosquitto-ssl",
         "git": "https://github.com/eclipse-mosquitto/mosquitto",
         "uninstall_pkg": "mosquitto-ssl",
-        "is_core": False
+        "is_core": False,
+        "port": 1883,
+        "category": "ecosystem"
     },
     "nfqws-web": {
         "name": "Веб-интерфейс nfqws (Web UI)",
@@ -217,36 +299,43 @@ KNOWN_SERVICES = {
     },
     "opds": {
         "name": "NanoOPDS Library",
-        "desc": "Сверхлегкий OPDS-сервер для читалок (FBReader, Moon+, PocketBook)",
-        "script_prefixes": ["S95opds"],
+        "desc": "Книжный сервер OPDS 1.2 и Web UI (каталог книг, читалка)",
+        "script_prefixes": ["S95opds", "S95nanoopds"],
         "proc": "nanoopds",
+        "proc_fallback": "server.py",
         "package": None,
-        "git": None,
+        "git": "https://github.com/salomanov/opds",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_opds.sh",
         "uninstall_pkg": None,
-        "is_core": False
+        "is_core": False,
+        "port": 8085,
+        "category": "ecosystem"
     },
     "tuya-mqtt-calibrator": {
-        "name": "Tuya MQTT Calibrator",
-        "desc": "Калибратор Tuya датчиков через MQTT",
-        "script_prefixes": ["S99tuya-mqtt-calibrator"],
-        "proc": "tuya_mqtt_calibrator.py",
+        "name": "Tuya Calibrator",
+        "desc": "Автокалибровка термостатов и датчиков Tuya через MQTT",
+        "script_prefixes": ["S99tuya-mqtt-calibrator", "S99tuya_calibrator", "S99tuya"],
+        "proc": "tuya_mqtt_calibrator",
+        "proc_fallback": "tuya_mqtt_calibrator.py",
         "package": None,
-        "git": None,
+        "git": "https://github.com/salomanov/Tuya",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_tuya_calibrator.sh",
         "uninstall_pkg": None,
-        "is_core": False
+        "is_core": False,
+        "category": "ecosystem"
     },
     "usque": {
-        "name": "Usque SOCKS5",
-        "desc": "SOCKS5 прокси-клиент",
+        "name": "Usque MASQUE SOCKS5",
+        "desc": "Cloudflare MASQUE QUIC SOCKS5 туннель (порт 8480)",
         "script_prefixes": ["S99usque"],
         "proc": "usque",
         "package": None,
         "git": "https://github.com/Diniboy1123/usque",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_usque.sh",
         "uninstall_pkg": None,
-        "is_core": False
+        "is_core": False,
+        "port": 8480,
+        "category": "network"
     }
 }
 
@@ -582,7 +671,7 @@ def get_process_status(proc_name):
         pass
     return False
 
-def get_service_status(script_path, proc_name=None):
+def get_service_status(script_path, proc_name=None, proc_fallback=None):
     """Service status. Process check wins; script output is only a fallback.
 
     Negative statuses are matched BEFORE positive ones: "usque is not running"
@@ -590,8 +679,11 @@ def get_service_status(script_path, proc_name=None):
     """
     if proc_name and get_process_status(proc_name):
         return "running"
+    if proc_fallback and get_process_status(proc_fallback):
+        return "running"
     if not script_path or not os.path.exists(script_path):
-        return "stopped"
+        # Even without script, if process is running it is running
+        return "running" if ((proc_name and get_process_status(proc_name)) or (proc_fallback and get_process_status(proc_fallback))) else "stopped"
     if not os.access(script_path, os.X_OK):
         return "stopped"
     try:
@@ -648,7 +740,36 @@ def discover_services(force=False):
                 "is_core": meta.get("is_core", False),
                 "uninstall_pkg": meta.get("uninstall_pkg"),
                 "custom": False,
-                "port": meta.get("port")
+                "port": meta.get("port"),
+                "category": meta.get("category", "general"),
+                "proc_fallback": meta.get("proc_fallback")
+            }
+
+    # Discover running ecosystem daemons without standard init scripts
+    for s_id, meta in KNOWN_SERVICES.items():
+        if s_id in services:
+            continue
+        p = meta.get("proc")
+        p_fb = meta.get("proc_fallback")
+        alive = False
+        if p and get_process_status(p):
+            alive = True
+        elif p_fb and get_process_status(p_fb):
+            alive = True
+        if alive:
+            services[s_id] = {
+                "name": meta["name"],
+                "desc": meta["desc"],
+                "script": "",
+                "proc": p,
+                "proc_fallback": p_fb,
+                "git": meta.get("git"),
+                "package": meta.get("package"),
+                "is_core": meta.get("is_core", False),
+                "uninstall_pkg": meta.get("uninstall_pkg"),
+                "custom": False,
+                "port": meta.get("port"),
+                "category": meta.get("category", "general")
             }
 
     # Discover custom uncatalogued services
@@ -825,7 +946,7 @@ def get_service_statuses(services, force=False):
 
     statuses = {}
     for s_id, s_info in services.items():
-        statuses[s_id] = get_service_status(s_info.get("script"), s_info.get("proc"))
+        statuses[s_id] = get_service_status(s_info.get("script"), s_info.get("proc"), s_info.get("proc_fallback"))
 
     with _CACHE_LOCK:
         _SERVICE_STATUS_CACHE["data"] = statuses
@@ -910,8 +1031,8 @@ def build_plan():
     }
 
 
-def download_and_run_script(url, timeout=600):
-    """Download an installer to a file, verify it, then run it.
+def download_and_run_script(url, timeout=600, log_callback=None):
+    """Download an installer to a file, verify it, then run it. Supports live progress streaming.
 
     Piping curl into sh hides download failures (pipeline status belongs to `sh`),
     and BusyBox ash has no `pipefail`.
@@ -937,9 +1058,23 @@ def download_and_run_script(url, timeout=600):
         if not os.path.exists(script_path) or os.path.getsize(script_path) == 0:
             return False, "Скачанный установщик пуст: %s" % url
 
-        run = subprocess.run(["sh", script_path], capture_output=True, text=True, timeout=timeout)
-        output = (run.stdout + run.stderr).strip()
-        return run.returncode == 0, output
+        if log_callback:
+            log_callback(f"Запуск скрипта установки...")
+            proc = subprocess.Popen(["sh", script_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            full_out = []
+            for line in iter(proc.stdout.readline, ''):
+                if not line:
+                    break
+                l = line.rstrip()
+                full_out.append(l)
+                log_callback(l)
+            proc.stdout.close()
+            proc.wait(timeout=10)
+            return proc.returncode == 0, "\n".join(full_out)
+        else:
+            run = subprocess.run(["sh", script_path], capture_output=True, text=True, timeout=timeout)
+            output = (run.stdout + run.stderr).strip()
+            return run.returncode == 0, output
     except subprocess.TimeoutExpired:
         return False, "Установщик превысил лимит времени (%ss)" % timeout
     except Exception as e:
@@ -971,8 +1106,14 @@ def invalidate_caches():
         _SERVICE_STATUS_CACHE["data"] = None
 
 
-def apply_plan(script_timeout=900):
+def apply_plan(script_timeout=900, log_callback=None):
     """Bring the router to the profile state. Idempotent; returns a step report."""
+    def _log(m):
+        if log_callback:
+            log_callback(m)
+        else:
+            logger.info(m)
+    _log("=== Запуск применения профиля роутера ===")
     steps = []
     before = build_plan()
     steps.append({
@@ -1030,10 +1171,22 @@ def apply_plan(script_timeout=900):
             "remaining": after["summary"]}
 
 
-def update_all_packages():
-    """Upgrade every package that has a newer version. One failure never aborts the run."""
+def update_all_packages(log_callback=None):
+    """Upgrade every package that has a newer version. Reports real-time streaming progress."""
+    def _log(m):
+        if log_callback:
+            log_callback(m)
+        else:
+            logger.info(m)
+
+    _log("=== Запуск комплексного обновления пакетов ===")
     results = []
+    _log("Шаг 1: Обновление списков репозиториев (opkg update)...")
     ok, out = opkg_update_lists()
+    if ok:
+        _log("✓ Списки репозиториев успешно обновлены.")
+    else:
+        _log(f"⚠ Предупреждение при обновлении списков: {out[:200]}")
     results.append({"target": "opkg update", "state": "ok" if ok else "error",
                     "output": out[-1500:]})
 
@@ -1055,11 +1208,18 @@ def update_all_packages():
                             "available": available})
             continue
         try:
+            _log(f"Обновление {pkg}: {current} ➜ {available}...")
             res = subprocess.run(["/opt/bin/opkg", "upgrade"] + pkg.split(),
                                  capture_output=True, text=True, timeout=300)
+            if res.returncode == 0:
+                _log(f"✓ Пакет {pkg} успешно обновлен.")
+                state = "updated"
+            else:
+                _log(f"✗ Ошибка обновления {pkg}: {res.stderr.strip()[:200]}")
+                state = "error"
             results.append({
                 "target": pkg,
-                "state": "updated" if res.returncode == 0 else "error",
+                "state": state,
                 "current": current,
                 "available": available,
                 "output": (res.stdout + res.stderr).strip()[-1500:],
@@ -1068,10 +1228,13 @@ def update_all_packages():
                 script = services.get(s_id, {}).get("script")
                 if script:
                     try:
+                        _log(f"Перезапуск службы {s_id} ({script})...")
                         subprocess.run([script, "restart"], capture_output=True, timeout=30)
-                    except Exception:
-                        pass
+                        _log(f"✓ Служба {s_id} перезапущена.")
+                    except Exception as e:
+                        _log(f"⚠ Сбой перезапуска {s_id}: {e}")
         except Exception as e:
+            _log(f"✗ Исключение при обновлении {pkg}: {e}")
             results.append({"target": pkg, "state": "error", "current": current,
                             "error": str(e)})
 
@@ -1249,6 +1412,8 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
                     "running": get_process_status("ttyd"),
                     "port": TTYD_PUBLIC_PORT
                 })
+            elif clean_path == "/api/task/active":
+                self.handle_task_active()
             else:
                 self.send_error_response(404, "Not Found")
         except Exception as e:
@@ -1485,35 +1650,48 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"Plan failed: {e}", exc_info=True)
             self.send_error_response(500, f"Не удалось построить план: {e}")
 
+    def handle_task_active(self):
+        after_line = 0
+        try:
+            import urllib.parse
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            if "after" in params:
+                after_line = max(0, int(params["after"][0]))
+        except Exception:
+            after_line = 0
+        task_info = _TASK_RUNNER.get_task_status(after_line=after_line)
+        self.send_json_response(task_info)
+
     def handle_apply(self, data):
-        if not _LONG_OP_LOCK.acquire(blocking=False):
-            self.send_error_response(409, "Другая длительная операция уже выполняется")
-            return
-        pause = None
+        pause = 900
         if isinstance(data, dict):
             try:
                 pause = max(60, min(int(data.get("timeout", 900)), 3600))
             except (TypeError, ValueError):
                 pause = 900
-        try:
-            self.send_json_response(apply_plan(script_timeout=pause or 900))
-        except Exception as e:
-            logger.error(f"Apply failed: {e}", exc_info=True)
-            self.send_error_response(500, f"Ошибка применения профиля: {e}")
-        finally:
-            _LONG_OP_LOCK.release()
+        task_id, err = _TASK_RUNNER.start_task("Применение профиля", apply_plan, script_timeout=pause)
+        if err:
+            self.send_error_response(409, err)
+            return
+        self.send_json_response({
+            "success": True,
+            "task_id": task_id,
+            "async": True,
+            "message": "Задача применения профиля запущена"
+        })
 
     def handle_update_all(self, data):
-        if not _LONG_OP_LOCK.acquire(blocking=False):
-            self.send_error_response(409, "Другая длительная операция уже выполняется")
+        task_id, err = _TASK_RUNNER.start_task("Обновление всех пакетов", update_all_packages)
+        if err:
+            self.send_error_response(409, err)
             return
-        try:
-            self.send_json_response(update_all_packages())
-        except Exception as e:
-            logger.error(f"update_all failed: {e}", exc_info=True)
-            self.send_error_response(500, f"Ошибка обновления: {e}")
-        finally:
-            _LONG_OP_LOCK.release()
+        self.send_json_response({
+            "success": True,
+            "task_id": task_id,
+            "async": True,
+            "message": "Задача обновления всех пакетов запущена"
+        })
 
     def handle_service_action(self, data):
         service = data.get("service")

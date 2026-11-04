@@ -618,7 +618,14 @@ function renderServicesTable(services) {
 
         // Service Name & Desc
         const tdName = document.createElement("td");
-        tdName.innerHTML = `<strong>${escapeHtml(svc.name)}</strong><br><small style="color:var(--text-secondary)">${escapeHtml(svc.desc)}</small>`;
+        let badgeExtra = "";
+        if (svc.port) {
+            badgeExtra += ` <span class="badge badge-port" title="Сетевой порт :${svc.port}">:${svc.port}</span>`;
+        }
+        if (svc.category === "ecosystem") {
+            badgeExtra += ` <span class="badge badge-ecosystem" title="Сервис экосистемы Router_Workspace"><i class="fa-solid fa-cube"></i> Экосистема</span>`;
+        }
+        tdName.innerHTML = `<strong>${escapeHtml(svc.name)}</strong>${badgeExtra}<br><small style="color:var(--text-secondary)">${escapeHtml(svc.desc)}</small>`;
 
         // Status Badge
         const tdStatus = document.createElement("td");
@@ -799,14 +806,18 @@ async function controlService(service, action) {
 
 async function triggerCatalogInstall(serviceId) {
     logToConsole(`Запуск установки ${serviceId}...`);
-    pauseAutoRefresh(60000);
     try {
-        // The install command/URL is taken from the server-side catalog only.
         const resp = await apiRequest("/api/service", {
             method: "POST",
             body: JSON.stringify({ service: serviceId, action: "install" })
         });
         const data = await resp.json();
+        if (data && data.task_id) {
+            startTaskStreaming(data.task_id, `Установка ${serviceId}`, () => {
+                logToConsole(`Установка ${serviceId} завершена.`, "success");
+            });
+            return;
+        }
         if (resp.ok && data.success) {
             logToConsole(`Служба ${serviceId} успешно установлена!`, "success");
         } else {
@@ -815,8 +826,6 @@ async function triggerCatalogInstall(serviceId) {
         await fetchRouterStatus(true);
     } catch (e) {
         logToConsole(`Ошибка при отправке запроса установки: ${e.message}`, "error");
-    } finally {
-        resumeAutoRefresh();
     }
 }
 
@@ -880,7 +889,6 @@ async function checkProfile() {
 async function applyProfile() {
     if (!confirm("Доставить недостающие пакеты из профиля? Это может занять несколько минут.")) return;
     logToConsole("Применение профиля...");
-    pauseAutoRefresh(600000);
     try {
         const resp = await apiRequest("/api/apply", { method: "POST", body: "{}" });
         const data = await resp.json();
@@ -888,28 +896,166 @@ async function applyProfile() {
             logToConsole(`Ошибка применения профиля: ${data.error || resp.status}`, "error");
             return;
         }
+        if (data.task_id) {
+            startTaskStreaming(data.task_id, "Применение профиля роутера", () => {
+                logToConsole("Применение профиля завершено.", "success");
+            });
+            return;
+        }
         (data.steps || []).forEach(step => {
             logToConsole(`[${step.ok ? "OK" : "FAIL"}] ${step.step}: ${step.output || ""}`,
                 step.ok ? "info" : "error");
         });
-        if (data.success) {
-            logToConsole("Профиль применён: всё на месте.", "success");
-        } else {
-            const rem = data.remaining || {};
-            logToConsole(`Осталось: ${(rem.missing || []).concat(rem.outdated || []).join(", ") || "ошибки установки"}`, "error");
-        }
         await fetchRouterStatus(true);
     } catch (e) {
         logToConsole(`Сбой применения профиля: ${e.message}`, "error");
-    } finally {
-        resumeAutoRefresh();
+    }
+}
+
+
+// --- Asynchronous Live Task Streaming (Console Log Window) ---
+let activeTaskPollTimer = null;
+let activeTaskLineCount = 0;
+
+function showTaskModal(title) {
+    const modal = document.getElementById("task-modal");
+    if (!modal) return;
+    const titleEl = document.getElementById("task-modal-title");
+    const logsEl = document.getElementById("task-modal-logs");
+    const elapsedEl = document.getElementById("task-modal-elapsed");
+    const linesEl = document.getElementById("task-modal-line-count");
+    const badgeEl = document.getElementById("task-modal-status-badge");
+    const spinnerEl = document.getElementById("task-modal-spinner");
+    const btnDone = document.getElementById("btn-task-modal-done");
+
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-gears"></i> ${escapeHtml(title)}`;
+    if (logsEl) logsEl.innerHTML = "";
+    if (elapsedEl) elapsedEl.textContent = "0 с";
+    if (linesEl) linesEl.textContent = "Строк: 0";
+    if (badgeEl) {
+        badgeEl.className = "badge badge-warning";
+        badgeEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Выполняется';
+    }
+    if (spinnerEl) spinnerEl.style.display = "inline-block";
+    if (btnDone) btnDone.style.display = "none";
+    toggleModal(modal, true);
+}
+
+function startTaskStreaming(taskId, taskName, onFinish) {
+    showTaskModal(taskName || "Выполнение операции...");
+    activeTaskLineCount = 0;
+    if (activeTaskPollTimer) clearInterval(activeTaskPollTimer);
+
+    pauseAutoRefresh(600000);
+
+    const poll = async () => {
+        try {
+            const resp = await apiRequest(`/api/task/active?after=${activeTaskLineCount}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (!data.active) {
+                if (activeTaskPollTimer) clearInterval(activeTaskPollTimer);
+                activeTaskPollTimer = null;
+                resumeAutoRefresh();
+                if (onFinish) onFinish(data);
+                return;
+            }
+
+            // Append new log lines smoothly
+            if (data.logs && data.logs.length > 0) {
+                const logsBox = document.getElementById("task-modal-logs");
+                if (logsBox) {
+                    data.logs.forEach(line => {
+                        const lineDiv = document.createElement("div");
+                        lineDiv.className = "task-log-line";
+                        if (line.includes("✅") || line.includes("✓")) {
+                            lineDiv.style.color = "var(--color-success)";
+                        } else if (line.includes("❌") || line.includes("✗") || line.includes("ОШИБКА")) {
+                            lineDiv.style.color = "var(--color-danger)";
+                        } else if (line.includes("⚠") || line.includes("Предупреждение")) {
+                            lineDiv.style.color = "var(--color-warning)";
+                        } else if (line.includes("===") || line.includes("Шаг")) {
+                            lineDiv.style.color = "var(--accent-cyan)";
+                            lineDiv.style.fontWeight = "bold";
+                        }
+                        lineDiv.textContent = line;
+                        logsBox.appendChild(lineDiv);
+                    });
+                    logsBox.scrollTop = logsBox.scrollHeight;
+                }
+                activeTaskLineCount = data.total_lines;
+            }
+
+            const elapsedEl = document.getElementById("task-modal-elapsed");
+            const linesEl = document.getElementById("task-modal-line-count");
+            if (elapsedEl) elapsedEl.textContent = `${data.elapsed || 0} с`;
+            if (linesEl) linesEl.textContent = `Строк: ${data.total_lines || 0}`;
+
+            if (data.status === "completed") {
+                if (activeTaskPollTimer) clearInterval(activeTaskPollTimer);
+                activeTaskPollTimer = null;
+                const badgeEl = document.getElementById("task-modal-status-badge");
+                const spinnerEl = document.getElementById("task-modal-spinner");
+                const btnDone = document.getElementById("btn-task-modal-done");
+                if (badgeEl) {
+                    badgeEl.className = "badge badge-success";
+                    badgeEl.innerHTML = '<i class="fa-solid fa-check"></i> Завершено';
+                }
+                if (spinnerEl) spinnerEl.style.display = "none";
+                if (btnDone) btnDone.style.display = "inline-flex";
+                resumeAutoRefresh();
+                fetchRouterStatus(true);
+                if (onFinish) onFinish(data);
+            } else if (data.status === "error") {
+                if (activeTaskPollTimer) clearInterval(activeTaskPollTimer);
+                activeTaskPollTimer = null;
+                const badgeEl = document.getElementById("task-modal-status-badge");
+                const spinnerEl = document.getElementById("task-modal-spinner");
+                const btnDone = document.getElementById("btn-task-modal-done");
+                if (badgeEl) {
+                    badgeEl.className = "badge badge-danger";
+                    badgeEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Ошибка';
+                }
+                if (spinnerEl) spinnerEl.style.display = "none";
+                if (btnDone) btnDone.style.display = "inline-flex";
+                resumeAutoRefresh();
+                fetchRouterStatus(true);
+                if (onFinish) onFinish(data);
+            }
+        } catch (e) {
+            console.error("Task poll error:", e);
+        }
+    };
+
+    activeTaskPollTimer = setInterval(poll, 800);
+    poll();
+}
+
+// --- PuTTY Terminal Key Sender & Fullscreen Handlers ---
+function sendTerminalKey(keySequence) {
+    const iframe = document.getElementById("terminal-iframe");
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ termInput: keySequence, type: "term-input" }, "*");
+    }
+
+    const cmdInput = document.getElementById("manual-cmd-input");
+    if (cmdInput && document.activeElement === cmdInput) {
+        if (keySequence === "\x03") {
+            cmdInput.value = "";
+        } else if (keySequence === "\t") {
+            const val = cmdInput.value.trim();
+            const hints = ["free -m", "df -h /opt", "uptime", "ps", "ip a", "opkg update", "opkg list-installed"];
+            const match = hints.find(h => h.startsWith(val));
+            if (match) cmdInput.value = match;
+        } else if (keySequence === "\r" || keySequence === "\n") {
+            runManualCommand(cmdInput.value.trim());
+        }
     }
 }
 
 async function updateAll() {
     if (!confirm("Обновить все установленные пакеты? Панель может быть недоступна несколько минут.")) return;
     logToConsole("Обновление всех пакетов...");
-    pauseAutoRefresh(600000);
     try {
         const resp = await apiRequest("/api/update_all", { method: "POST", body: "{}" });
         const data = await resp.json();
@@ -917,6 +1063,13 @@ async function updateAll() {
             logToConsole(`Ошибка обновления: ${data.error || resp.status}`, "error");
             return;
         }
+        if (data.task_id) {
+            startTaskStreaming(data.task_id, "Комплексное обновление пакетов", () => {
+                logToConsole("Комплексное обновление завершено.", "success");
+            });
+            return;
+        }
+        // Fallback for synchronous results
         (data.results || []).forEach(r => {
             logToConsole(`${r.target}: ${r.state}${r.available ? " -> " + r.available : ""}`,
                 r.state === "error" ? "error" : "info");
@@ -927,8 +1080,6 @@ async function updateAll() {
         await fetchRouterStatus(true);
     } catch (e) {
         logToConsole(`Сбой обновления: ${e.message}`, "error");
-    } finally {
-        resumeAutoRefresh();
     }
 }
 
@@ -1119,6 +1270,54 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnCloseConfirm) btnCloseConfirm.addEventListener("click", () => toggleModal(confirmModal, false));
     if (btnConfirmCancel) btnConfirmCancel.addEventListener("click", () => toggleModal(confirmModal, false));
     if (btnConfirmYes) btnConfirmYes.addEventListener("click", executePendingUpdate);
+
+    // Live Task Modal Close Listeners
+    const taskModal = document.getElementById("task-modal");
+    const btnTaskModalCloseX = document.getElementById("btn-task-modal-close-x");
+    const btnTaskModalDone = document.getElementById("btn-task-modal-done");
+    if (btnTaskModalCloseX) btnTaskModalCloseX.addEventListener("click", () => toggleModal(taskModal, false));
+    if (btnTaskModalDone) btnTaskModalDone.addEventListener("click", () => toggleModal(taskModal, false));
+
+    // Terminal Fullscreen Toggle Listener
+    const btnToggleFullscreen = document.getElementById("btn-toggle-fullscreen-term");
+    if (btnToggleFullscreen) {
+        btnToggleFullscreen.addEventListener("click", () => {
+            const wrapper = document.getElementById("tab-terminal-view");
+            if (wrapper) {
+                wrapper.classList.toggle("terminal-fullscreen");
+                const isFull = wrapper.classList.contains("terminal-fullscreen");
+                btnToggleFullscreen.innerHTML = isFull
+                    ? '<i class="fa-solid fa-compress"></i> <span class="btn-text">Свернуть</span>'
+                    : '<i class="fa-solid fa-expand"></i> <span class="btn-text">На весь экран</span>';
+            }
+        });
+    }
+
+    // Terminal Mobile On-Screen Keys Listeners
+    document.querySelectorAll(".term-key-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            const key = btn.getAttribute("data-key");
+            const cmd = btn.getAttribute("data-cmd");
+            if (cmd) {
+                sendTerminalKey(cmd);
+            } else if (key === "ctrl-c") {
+                sendTerminalKey("\x03");
+            } else if (key === "tab") {
+                sendTerminalKey("\t");
+            } else if (key === "esc") {
+                sendTerminalKey("\x1b");
+            } else if (key === "up") {
+                sendTerminalKey("\x1b[A");
+            } else if (key === "down") {
+                sendTerminalKey("\x1b[B");
+            } else if (key === "enter") {
+                sendTerminalKey("\r");
+            } else if (key === "clear") {
+                sendTerminalKey("clear\r");
+            }
+        });
+    });
 
     // Initial check: if token exists, try connecting immediately
     if (getToken()) {
