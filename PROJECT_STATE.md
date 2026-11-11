@@ -182,6 +182,9 @@
   - Результат для пользователя: флешка извлекается из ПК, вставляется в любой роутер Xiaomi Mi 3G (KeeneticOS) и через 15-20 секунд всё работает автоматически без консоли.
 
 ## Current State & Recent Changes
+## Current State & Recent Changes
+- [x] Роутер успешно обновлен до Python 3.14.7-2 (OpenWrt/Entware). Все три Python-проекта (GRouter 8089, NanoOPDS 8085, Tuya Calibrator) успешно запущены и проверены в памяти.
+- [x] Восстановлена и синхронизирована библиотека site-packages для Tuya (tinytuya, paho-mqtt, cffi, uuid, codecs) и сабпакеты opkg sqlite3/xml для NanoOPDS.
 - [x] Внедрен асинхронный TaskRunner и стриминг логов в реальном времени (`/api/task/active`, модальная живая консоль в UI с таймером и автоскроллом для `update_all`, `apply` и установки пакетов).
 - [x] Добавлен мониторинг сервисов экосистемы (`NanoOPDS` :8085, `Mosquitto` :1883, `Tuya Calibrator`, `Usque` :8480) с портами, бейджами и прямыми кнопками открытия Web UI.
 - [x] Реализована мобильная адаптация терминала PuTTY: режим «На весь экран», масштабирование 100vh, экранные клавиши (`Ctrl+C`, `Tab`, `Esc`, `▲`, `▼`, `Enter`, быстрые сниппеты).
