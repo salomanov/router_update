@@ -44,7 +44,7 @@ run_module() {
         return 1
     fi
 
-    sh "$file"
+    sh "$file" "$@"
     res=$?
     rm -f "$file"
     return $res
@@ -59,12 +59,19 @@ DO_TG=0
 DO_TAILSCALE=0
 DO_PANEL=0
 BATCH_MODE=0
+DPI_PROFILE="hardened"
 
 for arg in "$@"; do
     case "$arg" in
         --all)
             DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
             BATCH_MODE=1
+            ;;
+        --standard|--profile=standard)
+            DPI_PROFILE="standard"
+            ;;
+        --hardened|--profile=hardened)
+            DPI_PROFILE="hardened"
             ;;
         --dns)
             DO_DNS=1; BATCH_MODE=1
@@ -181,6 +188,23 @@ if [ $BATCH_MODE -eq 0 ]; then
     esac
 fi
 
+# --- Защита памяти MIPS (Swap Guard) ---
+SWAP_SIZE=$(free -m 2>/dev/null | awk '/Swap/{print $2}')
+[ -z "$SWAP_SIZE" ] && SWAP_SIZE=0
+if [ "$SWAP_SIZE" -lt 128 ]; then
+    printf "\n${YELLOW}>>> MIPS RAM Guard: Обнаружен дефицит Swap (${SWAP_SIZE} MB). Создаем 512 MB Swap...${NC}\n"
+    dd if=/dev/zero of=/opt/swapfile bs=1M count=512 2>/dev/null
+    chmod 600 /opt/swapfile
+    mkswap /opt/swapfile 2>/dev/null
+    swapon /opt/swapfile 2>/dev/null
+    cat << 'EOF' > /opt/etc/init.d/S00swap
+#!/bin/sh
+[ -f /opt/swapfile ] && swapon /opt/swapfile 2>/dev/null
+EOF
+    chmod +x /opt/etc/init.d/S00swap
+    printf "${GREEN}[OK] Swap 512 MB успешно создан и подключен (/opt/swapfile).${NC}\n"
+fi
+
 # --- Запуск выбранных модулей ---
 ERRORS=0
 
@@ -193,7 +217,7 @@ if [ $DO_GLUE -eq 1 ]; then
 fi
 
 if [ $DO_NFQWS -eq 1 ]; then
-    run_module "nfqws2 Anti-DPI (Движок)" "${REPO_RAW}/modules/03_nfqws2.sh" || ERRORS=$((ERRORS + 1))
+    run_module "nfqws2 Anti-DPI (${DPI_PROFILE})" "${REPO_RAW}/modules/03_nfqws2.sh" "--${DPI_PROFILE}" || ERRORS=$((ERRORS + 1))
 fi
 
 if [ $DO_NFQWS_WEB -eq 1 ]; then
