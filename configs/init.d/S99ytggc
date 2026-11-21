@@ -1,0 +1,56 @@
+#!/bin/sh
+# S99ytggc — мгновенный TCP-RESET для мёртвых кэш-узлов YouTube (GGC)
+# Zero Idle RAM: не держит фоновых процессов, только правила iptables.
+# Список IP: /opt/etc/ytggc_dead.list (по одному IPv4 на строку)
+
+LIST_FILE="/opt/etc/ytggc_dead.list"
+CHAIN="YTGGC_RST"
+
+ensure_chain() {
+    iptables -N "$CHAIN" 2>/dev/null
+    iptables -C FORWARD -j "$CHAIN" 2>/dev/null || iptables -I FORWARD 1 -j "$CHAIN"
+}
+
+apply_rules() {
+    ensure_chain
+    iptables -F "$CHAIN"
+    [ -f "$LIST_FILE" ] || return 0
+    while IFS= read -r ip; do
+        ip=$(echo "$ip" | sed 's/#.*//; s/[[:space:]]//g')
+        [ -z "$ip" ] && continue
+        iptables -A "$CHAIN" -d "$ip" -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+    done < "$LIST_FILE"
+}
+
+case "$1" in
+    start|restart|reload)
+        apply_rules
+        echo "S99ytggc: rules applied ($(iptables -S "$CHAIN" 2>/dev/null | grep -c 'REJECT') IPs)"
+        ;;
+    stop)
+        iptables -D FORWARD -j "$CHAIN" 2>/dev/null
+        iptables -F "$CHAIN" 2>/dev/null
+        iptables -X "$CHAIN" 2>/dev/null
+        echo "S99ytggc: stopped"
+        ;;
+    add)
+        [ -n "$2" ] || { echo "Usage: $0 add <IPv4>"; exit 1; }
+        touch "$LIST_FILE"
+        grep -qx "$2" "$LIST_FILE" || echo "$2" >> "$LIST_FILE"
+        apply_rules
+        echo "S99ytggc: added $2"
+        ;;
+    del)
+        [ -n "$2" ] || { echo "Usage: $0 del <IPv4>"; exit 1; }
+        [ -f "$LIST_FILE" ] && sed -i "/^$2$/d" "$LIST_FILE"
+        apply_rules
+        echo "S99ytggc: removed $2"
+        ;;
+    status)
+        iptables -L "$CHAIN" -n -v 2>/dev/null || echo "S99ytggc: inactive"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|add <IP>|del <IP>|status}"
+        exit 1
+        ;;
+esac

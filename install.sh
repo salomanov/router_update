@@ -25,14 +25,33 @@ fi
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
 CACHE_BUST="?nocache=$(date +%s)$$"
 TMP_DIR="/opt/tmp"
+SCRIPT_DIR="$(dirname "$0")"
 mkdir -p "$TMP_DIR"
 
 run_module() {
     name="$1"
     url="$2"
-    file="$TMP_DIR/$(basename "$url")"
+    base_name="$(basename "$url")"
+    file="$TMP_DIR/$base_name"
 
     printf "\n${YELLOW}>>> Запуск: ${name}...${NC}\n"
+
+    # Проверка локального модуля (поддержка офлайн-установки с флешки/кэша)
+    local_mod=""
+    if [ -f "$SCRIPT_DIR/modules/$base_name" ]; then
+        local_mod="$SCRIPT_DIR/modules/$base_name"
+    elif [ -f "./modules/$base_name" ]; then
+        local_mod="./modules/$base_name"
+    elif [ -f "/opt/updates_cache/modules/$base_name" ]; then
+        local_mod="/opt/updates_cache/modules/$base_name"
+    fi
+
+    if [ -n "$local_mod" ]; then
+        printf "${GREEN}[LOCAL] Исполнение локального модуля: %s${NC}\n" "$local_mod"
+        sh "$local_mod" "$@"
+        return $?
+    fi
+
     rm -f "$file"
     if ! curl -fsSL --max-time 30 -o "$file" "${url}${CACHE_BUST}"; then
         printf "${RED}[ОШИБКА] Не удалось скачать модуль: ${url}${NC}\n"

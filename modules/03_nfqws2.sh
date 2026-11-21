@@ -3,7 +3,8 @@
 # ==========================================================
 # Module 03: nfqws2 Anti-DPI Engine (Headless / Core)
 # - Official nfqws2-keenetic package (without lighttpd/php)
-# - Standard circular multisplit profile
+# - Hardened cascade profile (nld=3, clean desync, blobs)
+# - S99ytggc (YTGGC_RST instant failover)
 # ==========================================================
 
 GREEN='\033[0;32m'
@@ -60,6 +61,15 @@ for a in "$@"; do
 done
 
 REPO_RAW="https://raw.githubusercontent.com/salomanov/router_update/main"
+SCRIPT_DIR="$(dirname "$0")"
+LOCAL_BASE=""
+if [ -d "$SCRIPT_DIR/../configs" ]; then
+    LOCAL_BASE="$SCRIPT_DIR/.."
+elif [ -d "./configs" ]; then
+    LOCAL_BASE="."
+elif [ -d "/opt/updates_cache/configs" ]; then
+    LOCAL_BASE="/opt/updates_cache"
+fi
 
 # Автоопределение активного WAN-интерфейса роутера
 DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
@@ -67,35 +77,55 @@ DEF_IFACE=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
 [ -z "$DEF_IFACE" ] && DEF_IFACE="ppp0"
 printf "Интернет-интерфейс: %s\n" "$DEF_IFACE"
 
-if [ "$PROFILE" = "hardened" ]; then
-    printf "${YELLOW}Применение профиля HARDENED (боевые каскадные стратегии + блобы + QUIC блок)...${NC}\n"
-    mkdir -p /opt/etc/nfqws2/blobs /opt/etc/nfqws2/lists /opt/etc/ndm/netfilter.d
+fetch_file() {
+    rel_path="$1"
+    target="$2"
+    if [ -n "$LOCAL_BASE" ] && [ -f "$LOCAL_BASE/$rel_path" ]; then
+        cp -f "$LOCAL_BASE/$rel_path" "$target"
+        return 0
+    fi
+    curl -fsSL --max-time 15 -o "$target" "${REPO_RAW}/${rel_path}?$(date +%s)" 2>/dev/null
+}
 
-    # Скачивание оптимизированного nfqws2.conf
-    if curl -fsSL --max-time 15 -o /opt/etc/nfqws2/nfqws2.conf "${REPO_RAW}/configs/nfqws2.conf?$(date +%s)"; then
+if [ "$PROFILE" = "hardened" ]; then
+    printf "${YELLOW}Применение профиля HARDENED (nld=3 + S99ytggc + блобы + QUIC блок)...${NC}\n"
+    mkdir -p /opt/etc/nfqws2/blobs /opt/etc/nfqws2/lists /opt/etc/ndm/netfilter.d /opt/etc/init.d
+
+    # 1. nfqws2.conf
+    if fetch_file "configs/nfqws2.conf" "/opt/etc/nfqws2/nfqws2.conf"; then
         sed -i -E "s#^ISP_INTERFACE=\".+\"#ISP_INTERFACE=\"$DEF_IFACE\"#" /opt/etc/nfqws2/nfqws2.conf
-        printf "  [+] Боевой nfqws2.conf успешно развернут\n"
+        printf "  [+] Боевой nfqws2.conf (nld=3) успешно развернут\n"
     fi
 
-    # Скачивание блобов
-    for b in quic_initial.bin tls_clienthello.bin quic_initial_vk_com.bin tls_clienthello_vk_com.bin; do
-        curl -fsSL --max-time 15 -o "/opt/etc/nfqws2/blobs/$b" "${REPO_RAW}/configs/blobs/$b" 2>/dev/null
+    # 2. Бинарные блобы desync
+    BLOBS="quic_initial.bin tls_clienthello.bin quic_initial_vk_com.bin tls_clienthello_vk_com.bin quic_initial_rr1---sn-xguxaxjvh-n8me_googlevideo_com_kyber_1.bin tls_clienthello_vk_com_kyber.bin tls_clienthello_ozon_ru.bin tls_clienthello_sberbank_ru.bin tls_clienthello_www_sferum_ru.bin tls_clienthello_ya_ru.bin wireguard_initiation.bin"
+    for b in $BLOBS; do
+        fetch_file "configs/blobs/$b" "/opt/etc/nfqws2/blobs/$b"
     done
-    printf "  [+] Бинарные блобы desync синхронизированы\n"
+    printf "  [+] Бинарные блобы desync (включая Kyber) синхронизированы\n"
 
-    # Скачивание списков
+    # 3. Списки доменов
     for lst in user.list exclude.list ipset.list ipset_exclude.list; do
-        curl -fsSL --max-time 15 -o "/opt/etc/nfqws2/lists/$lst" "${REPO_RAW}/configs/lists/$lst" 2>/dev/null
+        fetch_file "configs/lists/$lst" "/opt/etc/nfqws2/lists/$lst"
     done
     touch /opt/etc/nfqws2/lists/auto.list
     printf "  [+] Списки доменов развернуты\n"
 
-    # Сетевое правило отсечки клиентского QUIC
-    if curl -fsSL --max-time 15 -o /opt/etc/ndm/netfilter.d/020-block-quic.sh "${REPO_RAW}/configs/ndm/020-block-quic.sh" 2>/dev/null; then
+    # 4. Сетевое правило отсечки клиентского QUIC
+    if fetch_file "configs/ndm/020-block-quic.sh" "/opt/etc/ndm/netfilter.d/020-block-quic.sh"; then
         chmod +x /opt/etc/ndm/netfilter.d/020-block-quic.sh
         sh /opt/etc/ndm/netfilter.d/020-block-quic.sh 2>/dev/null || true
         printf "  [+] Netfilter 020-block-quic.sh активирован\n"
     fi
+
+    # 5. Демон мгновенного сброса мёртвых GGC IP (S99ytggc)
+    fetch_file "configs/ytggc_dead.list" "/opt/etc/ytggc_dead.list"
+    if fetch_file "configs/init.d/S99ytggc" "/opt/etc/init.d/S99ytggc"; then
+        chmod +x /opt/etc/init.d/S99ytggc
+        /opt/etc/init.d/S99ytggc restart >/dev/null 2>&1 || true
+        printf "  [+] Служба S99ytggc развернута и активирована\n"
+    fi
+
 else
     printf "${GREEN}Применение профиля STANDARD (базовый репозиторный nfqws2)...${NC}\n"
     if [ -f "/opt/etc/nfqws2/nfqws2.conf" ]; then
@@ -103,7 +133,7 @@ else
     fi
 fi
 
-# 5. Запуск nfqws2
+# 6. Запуск nfqws2
 if [ -x "/opt/etc/init.d/S51nfqws2" ]; then
     /opt/etc/init.d/S51nfqws2 restart >/dev/null 2>&1
     printf "${GREEN}[OK] nfqws2 успешно запущен (профиль: %s)!${NC}\n\n" "$PROFILE"

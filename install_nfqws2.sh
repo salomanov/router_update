@@ -66,6 +66,12 @@ fetch "${REPO_RAW}/ndm/015-l2tp.sh${CACHE_BUST}" /opt/etc/ndm/netfilter.d/015-l2
 # Блокировка QUIC
 fetch "${REPO_RAW}/ndm/020-block-quic.sh${CACHE_BUST}" /opt/etc/ndm/netfilter.d/020-block-quic.sh
 
+# Загрузка боевого nfqws2.conf и демона S99ytggc (YTGGC_RST)
+fetch "${REPO_RAW}/nfqws2.conf${CACHE_BUST}" /opt/etc/nfqws2/nfqws2.conf
+fetch "${REPO_RAW}/init.d/S99ytggc${CACHE_BUST}" /opt/etc/init.d/S99ytggc
+fetch "${REPO_RAW}/ytggc_dead.list${CACHE_BUST}" /opt/etc/ytggc_dead.list
+[ -x "/opt/etc/init.d/S99ytggc" ] && /opt/etc/init.d/S99ytggc restart >/dev/null 2>&1 || true
+
 # Запуск сетевых правил
 [ -x "/opt/etc/ndm/netfilter.d/005-lan-fix.sh" ] && /opt/etc/ndm/netfilter.d/005-lan-fix.sh >/dev/null 2>&1 || true
 [ -x "/opt/etc/ndm/netfilter.d/015-l2tp.sh" ] && /opt/etc/ndm/netfilter.d/015-l2tp.sh >/dev/null 2>&1 || true
