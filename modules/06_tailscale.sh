@@ -138,12 +138,25 @@ if [ -s "/opt/etc/ndm/netfilter.d/010-tailscale.sh" ]; then
     /opt/etc/ndm/netfilter.d/010-tailscale.sh >/dev/null 2>&1 || true
 fi
 
-# 6. Создание вспомогательной утилиты /opt/bin/tailscale-status
+# 6. Создание вспомогательных утилит: tailscale-status и tailscale-login
 cat << 'EOFTS' > /opt/bin/tailscale-status
 #!/bin/sh
 sh /opt/scripts/modules/06_tailscale.sh --status 2>/dev/null || /opt/bin/tailscale status
 EOFTS
 chmod 755 /opt/bin/tailscale-status 2>/dev/null || true
+
+cat << 'EOFLOGIN' > /opt/bin/tailscale-login
+#!/bin/sh
+printf "\n\033[0;36m=== Мастер авторизации Tailscale на роутере ===\033[0m\n"
+printf "Запуск сессии авторизации (режим Exit Node + Subnet Routes)...\n\n"
+/opt/bin/tailscale up --advertise-exit-node --accept-routes --reset 2>&1 | tee /opt/var/log/tailscale_login.log
+AUTH_URL=$(grep -oE 'https://login.tailscale.com/a/[a-zA-Z0-9]+' /opt/var/log/tailscale_login.log 2>/dev/null | head -n1)
+if [ -n "$AUTH_URL" ]; then
+    printf "\n👉 Откройте эту ссылку в браузере телефона или ПК для привязки роутера к аккаунту:\n"
+    printf "🔗 \033[1;32m%s\033[0m\n\n" "$AUTH_URL"
+fi
+EOFLOGIN
+chmod 755 /opt/bin/tailscale-login 2>/dev/null || true
 
 # 7. Запуск службы
 /opt/etc/init.d/S06tailscale restart >/dev/null 2>&1
@@ -151,5 +164,18 @@ sleep 2
 
 printf "${GREEN}[OK] Служба Tailscale успешно установлена и запущена!${NC}\n\n"
 show_status
-printf "Команда для проверки статуса в любое время: ${YELLOW}tailscale-status${NC}\n\n"
+
+IP_CHECK=$(/opt/bin/tailscale ip -4 2>/dev/null)
+if [ -z "$IP_CHECK" ] && [ -t 0 ]; then
+    printf "Хотите авторизовать Tailscale прямо сейчас? [Y/n]: "
+    read -r DO_LOGIN
+    [ -z "$DO_LOGIN" ] && DO_LOGIN="y"
+    if [ "$DO_LOGIN" != "n" ] && [ "$DO_LOGIN" != "N" ]; then
+        /opt/bin/tailscale-login
+    fi
+fi
+
+printf "Команды для управления:\n"
+printf "  👉 Авторизоваться / Получить ссылку: ${GREEN}tailscale-login${NC}\n"
+printf "  👉 Проверить статус: ${YELLOW}tailscale-status${NC}\n\n"
 exit 0
