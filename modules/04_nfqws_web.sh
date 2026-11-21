@@ -53,8 +53,11 @@ EOFLIGHT
     [ -x "/opt/etc/init.d/S80lighttpd" ] && /opt/etc/init.d/S80lighttpd restart >/dev/null 2>&1 || true
 fi
 
-LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
-[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+# Определение локального LAN IP роутера (приоритет: локальные мосты br0 / br-lan / br1)
+LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br-lan 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br1 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+[ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show 2>/dev/null | awk '/inet 192\.168\./{print $2}' | cut -d/ -f1 | head -n1)
 [ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
 
 printf "${GREEN}[OK] Веб-панель nfqws доступна по адресу: http://%s:90/${NC}\n\n" "$LAN_IP"

@@ -27,8 +27,11 @@ show_status() {
     [ -f "/opt/etc/tg-ws-proxy/config.conf" ] && PORT=$(grep -E '^PORT=' /opt/etc/tg-ws-proxy/config.conf 2>/dev/null | cut -d'=' -f2 | tr -d '\r\n')
     [ -z "$PORT" ] && PORT="1443"
 
-    LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
-    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    # Определение локального LAN IP роутера (приоритет: локальные мосты br0 / br-lan / br1)
+    LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br-lan 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br1 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show 2>/dev/null | awk '/inet 192\.168\./{print $2}' | cut -d/ -f1 | head -n1)
     [ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
 
     WAN_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null)
@@ -100,7 +103,10 @@ sh /opt/scripts/modules/05_tg_proxy.sh --status 2>/dev/null || {
     SECRET=$(grep -E '^SECRET=' /opt/etc/tg-ws-proxy/secret.conf 2>/dev/null | cut -d'=' -f2 | tr -d '\r\n')
     PORT=$(grep -E '^PORT=' /opt/etc/tg-ws-proxy/config.conf 2>/dev/null | cut -d'=' -f2 | tr -d '\r\n')
     [ -z "$PORT" ] && PORT="1443"
-    LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+    LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br-lan 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show br1 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
+    [ -z "$LAN_IP" ] && LAN_IP=$(ip -4 addr show 2>/dev/null | awk '/inet 192\.168\./{print $2}' | cut -d/ -f1 | head -n1)
     [ -z "$LAN_IP" ] && LAN_IP="192.168.1.1"
     echo "Ссылка для подключения: tg://proxy?server=${LAN_IP}&port=${PORT}&secret=${SECRET}"
 }
