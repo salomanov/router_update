@@ -185,6 +185,7 @@ DO_DNS=0
 DO_GLUE=0
 DO_NFQWS=0
 DO_NFQWS_WEB=0
+DO_NFQWS_UI=0
 DO_NFQWS_MENU=0
 DO_TG=0
 DO_TAILSCALE=0
@@ -196,7 +197,7 @@ DPI_PROFILE="hardened"
 for arg in "$@"; do
     case "$arg" in
         --all)
-            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
+            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
             BATCH_MODE=1
             ;;
         --status)
@@ -220,6 +221,9 @@ for arg in "$@"; do
             ;;
         --nfqws-web)
             DO_NFQWS_WEB=1; BATCH_MODE=1
+            ;;
+        --nfqws-ui|--ui)
+            DO_NFQWS_UI=1; BATCH_MODE=1
             ;;
         --nfqws-menu|--menu)
             DO_NFQWS_MENU=1; BATCH_MODE=1
@@ -245,6 +249,7 @@ for arg in "$@"; do
             printf "  --netfilter   Только сетевые правила NDM (DNS 53, QUIC, IPv6, MSS)\n"
             printf "  --nfqws2      Только nfqws2 Anti-DPI (nld=3, S99ytggc, блобы)\n"
             printf "  --nfqws-web   Только официальная веб-панель nfqws (порт 90)\n"
+            printf "  --nfqws-ui    Только веб-панель автоподбора nfqws2-ui (порт 8090)\n"
             printf "  --nfqws-menu  Только терминальное меню nfqws-menu\n"
             printf "  --tailscale   Установить Tailscale VPN\n"
             printf "  --tailscale-setup  Запустить мастер авторизации Tailscale (вход по ссылке)\n"
@@ -275,12 +280,13 @@ if [ $BATCH_MODE -eq 0 ]; then
     printf "  ${GREEN}1)${NC} Умное обновление (Smart Update: обновить nfqws2 + доустановить недостающие компоненты)\n"
     printf "  ${GREEN}2)${NC} Обновить только nfqws2 Anti-DPI (nld=3, S99ytggc, Kyber блобы, списки)\n"
     printf "  ${GREEN}3)${NC} Установить / Обновить nfqws-menu (терминальное интерактивное меню)\n"
-    printf "  ${GREEN}4)${NC} Настроить и авторизовать Tailscale VPN (вход по ссылке в браузере)\n"
-    printf "  ${GREEN}5)${NC} Полная установка всех компонентов (Clean Full Install)\n"
-    printf "  ${GREEN}6)${NC} Выборочная установка по компонентам (ручной выбор каждого)\n"
+    printf "  ${GREEN}4)${NC} Установить / Обновить nfqws2-ui (веб-панель автоподбора :8090)\n"
+    printf "  ${GREEN}5)${NC} Настроить и авторизовать Tailscale VPN (вход по ссылке в браузере)\n"
+    printf "  ${GREEN}6)${NC} Полная установка всех компонентов (Clean Full Install)\n"
+    printf "  ${GREEN}7)${NC} Выборочная установка по компонентам (ручной выбор каждого)\n"
     printf "  ${RED}0)${NC} Выход\n"
     printf "${CYAN}------------------------------------------------------------------------${NC}\n"
-    printf "Выберите вариант [1-6, default: 1]: "
+    printf "Выберите вариант [1-7, default: 1]: "
     read -r CHOICE
 
     [ -z "$CHOICE" ] && CHOICE="1"
@@ -302,6 +308,9 @@ if [ $BATCH_MODE -eq 0 ]; then
             DO_NFQWS_MENU=1
             ;;
         4)
+            DO_NFQWS_UI=1
+            ;;
+        5)
             if [ -x "/opt/bin/tailscale-login" ]; then
                 /opt/bin/tailscale-login
                 exit 0
@@ -313,10 +322,10 @@ if [ $BATCH_MODE -eq 0 ]; then
                 DO_TAILSCALE=1
             fi
             ;;
-        5)
-            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
-            ;;
         6)
+            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
+            ;;
+        7)
             printf "\n${YELLOW}--- Настройка компонентов вручную ---${NC}\n"
 
             printf "1. Настроить защищенный DNS (DoT / DoH апстримы в KeeneticOS)? [y/N]: "
@@ -331,16 +340,19 @@ if [ $BATCH_MODE -eq 0 ]; then
             printf "4. Установить официальный веб-интерфейс nfqws (порт 90, lighttpd+php)? [y/N]: "
             read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_NFQWS_WEB=1
 
-            printf "5. Установить интерактивное терминальное меню nfqws-menu? [Y/n]: "
+            printf "5. Установить веб-панель автоподбора nfqws2-ui (порт 8090)? [y/N]: "
+            read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_NFQWS_UI=1
+
+            printf "6. Установить интерактивное терминальное меню nfqws-menu? [Y/n]: "
             read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_NFQWS_MENU=1
 
-            printf "6. Установить Telegram WebSocket прокси (порт 1443)? [y/N]: "
+            printf "7. Установить Telegram WebSocket прокси (порт 1443)? [y/N]: "
             read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_TG=1
 
-            printf "7. Установить Tailscale VPN? [y/N]: "
+            printf "8. Установить Tailscale VPN? [y/N]: "
             read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_TAILSCALE=1
 
-            printf "8. Установить панель управления GRouter (порт 8089) и веб-терминал? [Y/n]: "
+            printf "9. Установить панель управления GRouter (порт 8089) и веб-терминал? [Y/n]: "
             read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_PANEL=1
             ;;
         0)
@@ -390,6 +402,10 @@ if [ $DO_NFQWS_WEB -eq 1 ]; then
     run_module "Веб-интерфейс nfqws (порт 90)" "${REPO_RAW}/modules/04_nfqws_web.sh" || ERRORS=$((ERRORS + 1))
 fi
 
+if [ $DO_NFQWS_UI -eq 1 ]; then
+    run_module "nfqws2-ui (Веб-панель :8090)" "${REPO_RAW}/modules/09_nfqws_ui.sh" || ERRORS=$((ERRORS + 1))
+fi
+
 if [ $DO_NFQWS_MENU -eq 1 ]; then
     run_module "nfqws-menu (терминальное меню)" "${REPO_RAW}/modules/08_nfqws_menu.sh" || ERRORS=$((ERRORS + 1))
 fi
@@ -424,6 +440,7 @@ printf "${CYAN}==========================================================${NC}\n
 [ $DO_PANEL -eq 1 ] && printf "👉 Панель управления: ${GREEN}http://%s:8089/${NC} (admin / Salomanov)\n" "$LAN_IP"
 [ $DO_PANEL -eq 1 ] && printf "👉 Веб-терминал PuTTY: ${GREEN}http://%s:7681/${NC} (после входа в панель)\n" "$LAN_IP"
 [ $DO_NFQWS_WEB -eq 1 ] && printf "👉 Веб-панель nfqws: ${GREEN}http://%s:90/${NC}\n" "$LAN_IP"
+[ $DO_NFQWS_UI -eq 1 ] && printf "👉 Веб-панель автоподбора nfqws2-ui: ${GREEN}http://%s:8090/${NC} (root / пароль роутера)\n" "$LAN_IP"
 [ $DO_NFQWS_MENU -eq 1 ] && printf "👉 nfqws-menu: терминальное меню запускается командой ${YELLOW}nfqws-menu${NC}\n"
 [ $DO_TG -eq 1 ] && printf "👉 Telegram MTProto прокси: порт 1443 (ссылка: команда ${YELLOW}tg-proxy-link${NC})\n"
 [ $DO_TAILSCALE -eq 1 ] && printf "👉 Tailscale: для авторизации выполните ${GREEN}tailscale-login${NC} (статус: ${YELLOW}tailscale-status${NC})\n"
