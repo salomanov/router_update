@@ -159,7 +159,20 @@ preflight_scan() {
         printf "%-22s ${GRAY}%-20s${NC} —\n" "Telegram WS-Proxy" "[Не установлен]"
     fi
 
-    # 8. GRouter Панель
+    # 8. Proxy Stack (sing-box / 010-proxy)
+    if [ -x "/opt/bin/sing-box" ] || [ -f "/opt/var/run/redsocks.pid" ]; then
+        if netstat -tuln 2>/dev/null | grep -q ':10080 '; then
+            printf "%-22s ${GREEN}%-20s${NC} :10080 (sing-box -> usque)\n" "Proxy Stack" "[Установлен, UP]"
+        elif netstat -tuln 2>/dev/null | grep -q ':12345 '; then
+            printf "%-22s ${YELLOW}%-20s${NC} :12345 (redsocks fallback)\n" "Proxy Stack" "[Установлен, UP]"
+        else
+            printf "%-22s ${YELLOW}%-20s${NC} Порт редиректа закрыт\n" "Proxy Stack" "[Установлен, STOP]"
+        fi
+    else
+        printf "%-22s ${GRAY}%-20s${NC} —\n" "Proxy Stack" "[Не установлен]"
+    fi
+
+    # 9. GRouter Панель
     if [ -f "/opt/scripts/router_api.py" ] || [ -f "/opt/bin/router_api.py" ]; then
         if netstat -tuln 2>/dev/null | grep -q ':8089 '; then
             printf "%-22s ${GREEN}%-20s${NC} http://%s:8089/\n" "GRouter Панель" "[Установлен, UP]" "$LAN_IP_DETECT"
@@ -190,6 +203,7 @@ DO_NFQWS_MENU=0
 DO_TG=0
 DO_TAILSCALE=0
 DO_TAILSCALE_SETUP=0
+DO_PROXY=0
 DO_PANEL=0
 BATCH_MODE=0
 DPI_PROFILE="hardened"
@@ -197,7 +211,7 @@ DPI_PROFILE="hardened"
 for arg in "$@"; do
     case "$arg" in
         --all)
-            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
+            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PROXY=1; DO_PANEL=1
             BATCH_MODE=1
             ;;
         --status)
@@ -236,6 +250,9 @@ for arg in "$@"; do
             ;;
         --tailscale-setup|--tailscale-login)
             DO_TAILSCALE_SETUP=1; BATCH_MODE=1
+            ;;
+        --proxy|--sing-box)
+            DO_PROXY=1; BATCH_MODE=1
             ;;
         --panel)
             DO_PANEL=1; BATCH_MODE=1
@@ -299,6 +316,7 @@ if [ $BATCH_MODE -eq 0 ]; then
             [ ! -x "/opt/bin/nfqws-menu" ] && DO_NFQWS_MENU=1
             [ ! -x "/opt/bin/tg-ws-proxy" ] && DO_TG=1
             [ ! -x "/opt/bin/tailscaled" ] && DO_TAILSCALE=1
+            [ ! -f "/opt/etc/ndm/netfilter.d/010-proxy.sh" ] && DO_PROXY=1
             [ ! -f "/opt/scripts/router_api.py" ] && DO_PANEL=1
             ;;
         2)
@@ -323,7 +341,7 @@ if [ $BATCH_MODE -eq 0 ]; then
             fi
             ;;
         6)
-            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PANEL=1
+            DO_DNS=1; DO_GLUE=1; DO_NFQWS=1; DO_NFQWS_WEB=1; DO_NFQWS_UI=1; DO_NFQWS_MENU=1; DO_TG=1; DO_TAILSCALE=1; DO_PROXY=1; DO_PANEL=1
             ;;
         7)
             printf "\n${YELLOW}--- Настройка компонентов вручную ---${NC}\n"
@@ -352,7 +370,10 @@ if [ $BATCH_MODE -eq 0 ]; then
             printf "8. Установить Tailscale VPN? [y/N]: "
             read -r ANS; [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_TAILSCALE=1
 
-            printf "9. Установить панель управления GRouter (порт 8089) и веб-терминал? [Y/n]: "
+            printf "9. Установить стек проксирования sing-box (:10080) и 010-proxy? [Y/n]: "
+            read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_PROXY=1
+
+            printf "10. Установить панель управления GRouter (порт 8089) и веб-терминал? [Y/n]: "
             read -r ANS; [ -z "$ANS" ] || [ "$ANS" = "y" ] || [ "$ANS" = "Y" ] && DO_PANEL=1
             ;;
         0)
@@ -418,6 +439,10 @@ if [ $DO_TAILSCALE -eq 1 ]; then
     run_module "Tailscale VPN" "${REPO_RAW}/modules/06_tailscale.sh" || ERRORS=$((ERRORS + 1))
 fi
 
+if [ $DO_PROXY -eq 1 ]; then
+    run_module "Стек проксирования (sing-box + 010-proxy)" "${REPO_RAW}/modules/10_proxy_stack.sh" || ERRORS=$((ERRORS + 1))
+fi
+
 if [ $DO_PANEL -eq 1 ]; then
     run_module "GRouter Панель (8089) и терминал (7681)" "${REPO_RAW}/modules/07_dashboard.sh" || ERRORS=$((ERRORS + 1))
 fi
@@ -444,5 +469,6 @@ printf "${CYAN}==========================================================${NC}\n
 [ $DO_NFQWS_MENU -eq 1 ] && printf "👉 nfqws-menu: терминальное меню запускается командой ${YELLOW}nfqws-menu${NC}\n"
 [ $DO_TG -eq 1 ] && printf "👉 Telegram MTProto прокси: порт 1443 (ссылка: команда ${YELLOW}tg-proxy-link${NC})\n"
 [ $DO_TAILSCALE -eq 1 ] && printf "👉 Tailscale: для авторизации выполните ${GREEN}tailscale-login${NC} (статус: ${YELLOW}tailscale-status${NC})\n"
+[ $DO_PROXY -eq 1 ] && printf "👉 Стек проксирования: ${GREEN}sing-box :10080 -> usque :8480${NC} (010-proxy.sh + update_ipsets.sh)\n"
 printf "\n"
 exit $ERRORS

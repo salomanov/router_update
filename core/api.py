@@ -197,13 +197,16 @@ KNOWN_SERVICES = {
     },
     "tg-ws-proxy": {
         "name": "tg-ws-proxy",
-        "desc": "Прокси Telegram MTProto WebSockets (Go)",
+        "desc": "Прокси Telegram MTProto WebSockets (порт 1443)",
         "script_prefixes": ["S99tg-ws-proxy", "S61tg-ws-proxy"],
         "proc": "tg-ws-proxy",
         "package": "tg-ws-proxy",
         "git": "https://github.com/spatiumstas/tg-ws-proxy-go",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_tg_proxy.sh",
-        "is_core": True
+        "is_core": True,
+        "port": 1443,
+        "is_web": False,
+        "has_info": True
     },
     "dropbear": {
         "name": "SSH (Dropbear)",
@@ -222,7 +225,8 @@ KNOWN_SERVICES = {
         "package": "tailscale",
         "git": "https://github.com/tailscale/tailscale",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_tailscale.sh",
-        "is_core": True
+        "is_core": True,
+        "has_info": True
     },
     "mosquitto": {
         "name": "Mosquitto MQTT",
@@ -326,16 +330,45 @@ KNOWN_SERVICES = {
     },
     "usque": {
         "name": "Usque MASQUE SOCKS5",
-        "desc": "Cloudflare MASQUE QUIC SOCKS5 туннель (порт 8480)",
+        "desc": "Cloudflare MASQUE SOCKS5 туннель (порт 8480, mips-оптимизирован)",
         "script_prefixes": ["S99usque"],
         "proc": "usque",
         "package": None,
         "git": "https://github.com/Diniboy1123/usque",
         "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/install_usque.sh",
         "uninstall_pkg": None,
-        "is_core": False,
+        "is_core": True,
         "port": 8480,
-        "category": "network"
+        "is_web": False,
+        "category": "ecosystem"
+    },
+    "sing-box": {
+        "name": "sing-box (Transparent Proxy)",
+        "desc": "Прозрачный TCP/UDP редирект (порт 10080) -> Usque SOCKS5 (:8480)",
+        "script_prefixes": ["S99sing-box", "S52sing-box"],
+        "proc": "sing-box",
+        "package": "sing-box-go",
+        "git": "https://github.com/SagerNet/sing-box",
+        "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/modules/10_proxy_stack.sh",
+        "uninstall_pkg": "sing-box-go",
+        "is_core": True,
+        "port": 10080,
+        "is_web": False,
+        "category": "ecosystem"
+    },
+    "nfqws2-ui": {
+        "name": "nfqws2-ui (zemidala)",
+        "desc": "Веб-интерфейс nfqws с автоподбором стратегий zapret (порт 8090)",
+        "script_prefixes": ["S80lighttpd", "S51nfqws2"],
+        "proc": "lighttpd",
+        "package": "nfqws2-ui",
+        "git": "https://github.com/zemidala/nfqws2-ui",
+        "install_url": "https://raw.githubusercontent.com/salomanov/router_update/main/modules/09_nfqws_ui.sh",
+        "uninstall_pkg": "nfqws2-ui",
+        "is_core": False,
+        "port": 8090,
+        "is_web": True,
+        "category": "ecosystem"
     }
 }
 
@@ -741,6 +774,8 @@ def discover_services(force=False):
                 "uninstall_pkg": meta.get("uninstall_pkg"),
                 "custom": False,
                 "port": meta.get("port"),
+                "is_web": meta.get("is_web", True),
+                "has_info": meta.get("has_info", False) or s_id in ("tg-ws-proxy", "tailscale"),
                 "category": meta.get("category", "general"),
                 "proc_fallback": meta.get("proc_fallback")
             }
@@ -769,7 +804,31 @@ def discover_services(force=False):
                 "uninstall_pkg": meta.get("uninstall_pkg"),
                 "custom": False,
                 "port": meta.get("port"),
+                "is_web": meta.get("is_web", True),
+                "has_info": meta.get("has_info", False) or s_id in ("tg-ws-proxy", "tailscale"),
                 "category": meta.get("category", "general")
+            }
+
+    # Special detection for nfqws2-ui on port 8090 (lighttpd vhost)
+    if "nfqws2-ui" not in services:
+        ui_cfg = "/opt/etc/lighttpd/conf.d/90-nfqws-ui.conf"
+        ui_bin = "/opt/sbin/nfqws-ui"
+        if os.path.exists(ui_cfg) or os.path.exists(ui_bin):
+            meta_ui = KNOWN_SERVICES["nfqws2-ui"]
+            services["nfqws2-ui"] = {
+                "name": meta_ui["name"],
+                "desc": meta_ui["desc"],
+                "script": os.path.join(init_dir, "S80lighttpd") if os.path.exists(os.path.join(init_dir, "S80lighttpd")) else "",
+                "proc": "lighttpd",
+                "git": meta_ui.get("git"),
+                "package": meta_ui.get("package"),
+                "is_core": False,
+                "uninstall_pkg": meta_ui.get("uninstall_pkg"),
+                "custom": False,
+                "port": 8090,
+                "is_web": True,
+                "has_info": False,
+                "category": "ecosystem"
             }
 
     # Discover custom uncatalogued services
@@ -1312,6 +1371,151 @@ def get_system_stats():
         _STATS_CACHE["timestamp"] = now
     return stats
 
+
+def get_router_lan_ip():
+    """Detects primary LAN IP of the router (br0, br-lan, br1) or falls back to 192.168.1.1."""
+    if sys.platform != "win32":
+        for iface in ["br0", "br-lan", "br1"]:
+            try:
+                out = subprocess.check_output(["ip", "-4", "addr", "show", iface], text=True, stderr=subprocess.DEVNULL, timeout=2)
+                for line in out.splitlines():
+                    line = line.strip()
+                    if line.startswith("inet "):
+                        return line.split()[1].split("/")[0]
+            except Exception:
+                continue
+        try:
+            out = subprocess.check_output(["ip", "-4", "addr", "show"], text=True, stderr=subprocess.DEVNULL, timeout=2)
+            for line in out.splitlines():
+                if "inet 192.168." in line:
+                    return line.strip().split()[1].split("/")[0]
+        except Exception:
+            pass
+    return "192.168.1.1"
+
+
+def get_tg_ws_proxy_info():
+    """Returns connection parameters and links for tg-ws-proxy."""
+    is_running = get_process_status("tg-ws-proxy")
+    secret = ""
+    port = 1443
+    
+    # 1. Read secret from /opt/etc/tg-ws-proxy/secret.conf
+    secret_file = "/opt/etc/tg-ws-proxy/secret.conf"
+    if os.path.isfile(secret_file):
+        try:
+            with open(secret_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("SECRET="):
+                        secret = line.strip().split("=", 1)[1].strip()
+        except Exception as e:
+            logger.warning(f"Failed to read tg-ws-proxy secret: {e}")
+            
+    # 2. Read port from /opt/etc/tg-ws-proxy/config.conf
+    config_file = "/opt/etc/tg-ws-proxy/config.conf"
+    if os.path.isfile(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("PORT="):
+                        p_val = line.strip().split("=", 1)[1].strip()
+                        if p_val.isdigit():
+                            port = int(p_val)
+        except Exception as e:
+            logger.warning(f"Failed to read tg-ws-proxy port: {e}")
+            
+    lan_ip = get_router_lan_ip()
+    
+    # Generate links
+    tg_link = f"tg://proxy?server={lan_ip}&port={port}&secret={secret}" if secret else ""
+    tme_link = f"https://t.me/proxy?server={lan_ip}&port={port}&secret={secret}" if secret else ""
+    
+    return {
+        "ok": True,
+        "service": "tg-ws-proxy",
+        "running": is_running,
+        "port": port,
+        "secret": secret,
+        "lan_ip": lan_ip,
+        "tg_link": tg_link,
+        "tme_link": tme_link,
+        "direct_command": "tg-proxy-link"
+    }
+
+
+def get_tailscale_info():
+    """Returns Tailscale VPN connection status, IPv4, exit node status and peers."""
+    is_running = get_process_status("tailscaled")
+    ts_ip = ""
+    status_text = ""
+    self_name = ""
+    exit_node = False
+    peers = []
+    needs_login = False
+    
+    if os.path.isfile("/opt/bin/tailscale"):
+        # 1. Try tailscale status --json
+        try:
+            out = subprocess.check_output(["/opt/bin/tailscale", "status", "--json"], text=True, stderr=subprocess.DEVNULL, timeout=4)
+            data = json.loads(out)
+            self_node = data.get("Self", {})
+            self_name = self_node.get("HostName") or self_node.get("DNSName", "").rstrip(".")
+            ips = self_node.get("TailscaleIPs", [])
+            for ip_addr in ips:
+                if ":" not in ip_addr:
+                    ts_ip = ip_addr
+                    break
+            exit_node = bool(self_node.get("ExitNode") or self_node.get("ExitNodeOption"))
+            
+            peer_dict = data.get("Peer", {})
+            for p_id, p_info in peer_dict.items():
+                p_ips = [ip for ip in p_info.get("TailscaleIPs", []) if ":" not in ip]
+                peers.append({
+                    "name": p_info.get("HostName", "Unknown"),
+                    "ip": p_ips[0] if p_ips else "",
+                    "os": p_info.get("OS", ""),
+                    "online": p_info.get("Online", False),
+                    "active": p_info.get("Active", False)
+                })
+        except Exception as e:
+            logger.debug(f"tailscale json status probe failed: {e}")
+            
+        # 2. Fallback to tailscale ip -4
+        if not ts_ip:
+            try:
+                ip_out = subprocess.check_output(["/opt/bin/tailscale", "ip", "-4"], text=True, stderr=subprocess.DEVNULL, timeout=3).strip()
+                if ip_out and not ip_out.startswith("tailscale"):
+                    ts_ip = ip_out
+            except Exception:
+                pass
+                
+        # 3. Fallback text status
+        try:
+            status_text = subprocess.check_output(["/opt/bin/tailscale", "status"], text=True, stderr=subprocess.DEVNULL, timeout=3).strip()
+            if "Logged out" in status_text or "NeedsLogin" in status_text:
+                needs_login = True
+        except Exception:
+            pass
+            
+        if not ts_ip and not is_running:
+            needs_login = False
+        elif not ts_ip and is_running:
+            needs_login = True
+            
+    return {
+        "ok": True,
+        "service": "tailscale",
+        "running": is_running,
+        "ip": ts_ip,
+        "self_name": self_name,
+        "exit_node": exit_node,
+        "needs_login": needs_login,
+        "peers_count": len(peers),
+        "peers": peers[:15],
+        "status_text": status_text[:1000] if status_text else "",
+        "login_command": "/opt/bin/tailscale up --advertise-exit-node --accept-routes --reset"
+    }
+
 # --- HTTP Request Handler ---
 
 class RouterAPIHandler(BaseHTTPRequestHandler):
@@ -1414,6 +1618,10 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
                 })
             elif clean_path == "/api/task/active":
                 self.handle_task_active()
+            elif clean_path == "/api/service/tg-ws-proxy/info":
+                self.send_json_response(get_tg_ws_proxy_info())
+            elif clean_path == "/api/service/tailscale/info":
+                self.send_json_response(get_tailscale_info())
             else:
                 self.send_error_response(404, "Not Found")
         except Exception as e:
@@ -1612,7 +1820,10 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
                 "current_version": current,
                 "available_version": available,
                 "update_available": is_newer_version(available, current),
-                "port": s_info.get("port")
+                "port": s_info.get("port"),
+                "category": s_info.get("category", "general"),
+                "is_web": s_info.get("is_web", True),
+                "has_info": bool(s_info.get("has_info")) or s_id in ("tg-ws-proxy", "tailscale")
             }
             services_detailed.append(detailed)
 
@@ -1628,7 +1839,10 @@ class RouterAPIHandler(BaseHTTPRequestHandler):
                     "install_url": s_info.get("install_url"),
                     "installable": bool(s_info.get("install_url") or s_info.get("package")),
                     "installed": False,
-                    "port": s_info.get("port")
+                    "port": s_info.get("port"),
+                    "category": s_info.get("category", "general"),
+                    "is_web": s_info.get("is_web", True),
+                    "has_info": bool(s_info.get("has_info")) or s_id in ("tg-ws-proxy", "tailscale")
                 })
 
         payload = {

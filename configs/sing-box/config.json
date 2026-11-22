@@ -1,0 +1,42 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "redirect",
+      "tag": "redirect-in",
+      "listen": "0.0.0.0",
+      "listen_port": 10080
+    },
+    {
+      "type": "tproxy",
+      "tag": "tproxy-in",
+      "listen": "0.0.0.0",
+      "listen_port": 10080,
+      "network": "udp"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "usque-out",
+      "server": "192.168.1.1",
+      "server_port": 8480
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "usque-out"
+  }
+}

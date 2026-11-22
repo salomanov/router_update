@@ -676,9 +676,13 @@ function renderServicesTable(services) {
         const btnGroup = document.createElement("div");
         btnGroup.className = "btn-group";
 
-        if (svc.port) {
+        if (svc.port && svc.is_web !== false) {
             const host = window.location.hostname || "192.168.1.1";
             btnGroup.innerHTML += `<a href="http://${host}:${svc.port}/" target="_blank" class="btn btn-secondary btn-xs action-btn" title="Открыть веб-интерфейс (порт ${svc.port})"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`;
+        }
+
+        if (svc.has_info || svc.id === "tg-ws-proxy" || svc.id === "tailscale") {
+            btnGroup.innerHTML += `<button class="btn btn-secondary btn-xs info-btn" data-svc="${escapeHtml(svc.id)}" title="Параметры подключения и статус"><i class="fa-solid fa-circle-info"></i></button>`;
         }
 
         if (isRunning) {
@@ -718,6 +722,10 @@ function renderServicesTable(services) {
 
     servicesTbody.querySelectorAll(".uninstall-btn").forEach(btn => {
         btn.addEventListener("click", () => triggerUninstall(btn.dataset.svc));
+    });
+
+    servicesTbody.querySelectorAll(".info-btn").forEach(btn => {
+        btn.addEventListener("click", () => showServiceInfoModal(btn.dataset.svc));
     });
 }
 
@@ -1155,6 +1163,259 @@ async function runManualCommand(cmd) {
     }
 }
 
+
+// --- Service Connection Info Modal ---
+
+function hideServiceInfoModal() {
+    const modal = document.getElementById("service-info-modal");
+    if (modal) modal.classList.remove("active");
+}
+
+function copyToClipboard(text, btnElement) {
+    if (!text) return;
+    if (!navigator.clipboard) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+    } else {
+        navigator.clipboard.writeText(text);
+    }
+    if (btnElement) {
+        const orig = btnElement.innerHTML;
+        btnElement.innerHTML = `<i class="fa-solid fa-check"></i> Скопировано`;
+        btnElement.classList.add("btn-success");
+        setTimeout(() => {
+            btnElement.innerHTML = orig;
+            btnElement.classList.remove("btn-success");
+        }, 2000);
+    }
+}
+
+async function showServiceInfoModal(svcId) {
+    const modal = document.getElementById("service-info-modal");
+    const titleEl = document.getElementById("service-info-title");
+    const bodyEl = document.getElementById("service-info-body");
+    if (!modal || !bodyEl) return;
+
+    if (titleEl) titleEl.textContent = "Загрузка параметров...";
+    bodyEl.innerHTML = `
+        <div style="text-align: center; padding: 36px 20px;">
+            <div class="spinner-small" style="display: inline-block; width: 28px; height: 28px; border-width: 3px;"></div>
+            <p style="margin-top: 12px; color: var(--text-secondary); font-size: 13px;">Запрос параметров подключения к роутеру...</p>
+        </div>
+    `;
+    modal.classList.add("active");
+
+    try {
+        const resp = await apiRequest(`/api/service/${svcId}/info`);
+        if (!resp.ok) {
+            bodyEl.innerHTML = `<div style="padding: 20px; text-align: center; color: #ef4444;"><i class="fa-solid fa-circle-exclamation" style="font-size: 24px; margin-bottom: 8px;"></i><p>Ошибка получения параметров (HTTP ${resp.status})</p></div>`;
+            return;
+        }
+        const data = await resp.json();
+
+        if (svcId === "tg-ws-proxy") {
+            if (titleEl) titleEl.innerHTML = `<i class="fa-brands fa-telegram" style="color: var(--accent-cyan); margin-right: 6px;"></i> Telegram MTProto Proxy (:1443)`;
+            const isRun = Boolean(data.running);
+            const statusBadge = isRun
+                ? `<span class="badge badge-success"><i class="fa-solid fa-circle"></i> Активен</span>`
+                : `<span class="badge badge-secondary"><i class="fa-solid fa-circle"></i> Остановлен</span>`;
+
+            let linksHtml = "";
+            if (data.secret) {
+                linksHtml = `
+                    <div class="info-section">
+                        <div class="info-section-title"><i class="fa-solid fa-link"></i> Подключение в локальной сети (Wi-Fi / LAN)</div>
+                        <div class="info-link-box">
+                            <span class="info-link-text">${escapeHtml(data.tg_link)}</span>
+                            <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="${escapeHtml(data.tg_link)}" title="Скопировать ссылку tg://">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <a href="${escapeHtml(data.tg_link)}" class="btn btn-primary btn-sm" style="flex: 1; justify-content: center;">
+                                <i class="fa-brands fa-telegram"></i> Подключить в Telegram
+                            </a>
+                            <a href="${escapeHtml(data.tme_link)}" target="_blank" class="btn btn-secondary btn-sm" style="flex: 1; justify-content: center;">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> t.me/proxy
+                            </a>
+                        </div>
+                    </div>
+                `;
+            } else {
+                linksHtml = `
+                    <div class="info-section" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 12px;">
+                        <p style="margin: 0; color: #ef4444; font-size: 13px;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Секрет прокси пока не сгенерирован или файл <code>/opt/etc/tg-ws-proxy/secret.conf</code> отсутствует.
+                            Запустите службу или переустановите модуль.
+                        </p>
+                    </div>
+                `;
+            }
+
+            bodyEl.innerHTML = `
+                <div class="info-param-grid">
+                    <div class="info-param-card">
+                        <div class="info-param-label">Состояние службы</div>
+                        <div class="info-param-value">${statusBadge}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">Сетевой порт</div>
+                        <div class="info-param-value">${escapeHtml(data.port || 1443)}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">LAN IP роутера</div>
+                        <div class="info-param-value">${escapeHtml(data.lan_ip || "192.168.1.1")}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">Секретный ключ (hex)</div>
+                        <div class="info-param-value" style="font-size: 11px;">${escapeHtml(data.secret || "Не задан")}</div>
+                    </div>
+                </div>
+
+                ${linksHtml}
+
+                <div class="info-section" style="margin-top: 14px;">
+                    <div class="info-section-title"><i class="fa-solid fa-terminal"></i> Консольная утилита</div>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 6px 0;">
+                        На самом роутере в терминале статус и ссылки можно быстро вызвать командой:
+                    </p>
+                    <div class="info-link-box">
+                        <span class="info-link-text">tg-proxy-link</span>
+                        <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="tg-proxy-link" title="Скопировать команду">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+        } else if (svcId === "tailscale") {
+            if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-shield-halved" style="color: var(--accent-cyan); margin-right: 6px;"></i> Tailscale VPN & Exit Node`;
+            const isRun = Boolean(data.running);
+            const statusBadge = isRun
+                ? `<span class="badge badge-success"><i class="fa-solid fa-circle"></i> Активен</span>`
+                : `<span class="badge badge-secondary"><i class="fa-solid fa-circle"></i> Остановлен</span>`;
+
+            const exitBadge = data.exit_node
+                ? `<span class="badge badge-port" style="color: var(--accent-cyan);"><i class="fa-solid fa-check"></i> Exit Node включен</span>`
+                : `<span style="color: var(--text-secondary); font-size: 12px;">Стандартный узел</span>`;
+
+            let loginAlert = "";
+            if (data.needs_login) {
+                loginAlert = `
+                    <div class="info-section" style="background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 6px; padding: 12px;">
+                        <p style="margin: 0 0 6px 0; color: #eab308; font-size: 13px; font-weight: 600;">
+                            <i class="fa-solid fa-key"></i> Требуется авторизация в сети Tailscale
+                        </p>
+                        <p style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-secondary);">
+                            Запустите мастер авторизации роутера (в терминале отобразится ссылка для входа через браузер):
+                        </p>
+                        <div class="info-link-box">
+                            <span class="info-link-text">tailscale-login</span>
+                            <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="tailscale-login" title="Скопировать команду">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            let peersHtml = "";
+            if (data.peers && data.peers.length > 0) {
+                const list = data.peers.map(p => `
+                    <div class="peer-card">
+                        <div class="peer-info">
+                            <i class="fa-solid fa-desktop" style="color: ${p.online ? 'var(--accent-cyan)' : 'var(--text-muted)'}"></i>
+                            <div>
+                                <strong>${escapeHtml(p.name)}</strong>
+                                <small style="color: var(--text-secondary); margin-left: 6px;">(${escapeHtml(p.os || 'устройство')})</small>
+                            </div>
+                        </div>
+                        <div class="peer-ip">${escapeHtml(p.ip)}</div>
+                    </div>
+                `).join("");
+                peersHtml = `
+                    <div class="info-section">
+                        <div class="info-section-title"><i class="fa-solid fa-network-wired"></i> Устройства в сети Tailscale (${data.peers.length})</div>
+                        <div class="peer-list">${list}</div>
+                    </div>
+                `;
+            }
+
+            bodyEl.innerHTML = `
+                <div class="info-param-grid">
+                    <div class="info-param-card">
+                        <div class="info-param-label">Состояние службы</div>
+                        <div class="info-param-value">${statusBadge}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">Tailscale IPv4</div>
+                        <div class="info-param-value" style="color: var(--accent-cyan);">${escapeHtml(data.ip || "Не назначен")}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">Имя узла (MagicDNS)</div>
+                        <div class="info-param-value">${escapeHtml(data.self_name || "Keenetic-Router")}</div>
+                    </div>
+                    <div class="info-param-card">
+                        <div class="info-param-label">Режим шлюза</div>
+                        <div class="info-param-value">${exitBadge}</div>
+                    </div>
+                </div>
+
+                ${loginAlert}
+
+                ${data.ip ? `
+                    <div class="info-section">
+                        <div class="info-section-title"><i class="fa-solid fa-id-badge"></i> Адрес роутера в Tailnet</div>
+                        <div class="info-link-box">
+                            <span class="info-link-text">${escapeHtml(data.ip)}</span>
+                            <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="${escapeHtml(data.ip)}" title="Скопировать IP">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${peersHtml}
+
+                <div class="info-section" style="margin-top: 14px;">
+                    <div class="info-section-title"><i class="fa-solid fa-terminal"></i> Консольные команды</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <div class="info-link-box" style="margin-bottom: 0;">
+                            <span class="info-link-text">tailscale-status</span>
+                            <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="tailscale-status" title="Скопировать">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                        <div class="info-link-box" style="margin-bottom: 0;">
+                            <span class="info-link-text">tailscale up --advertise-exit-node --accept-routes</span>
+                            <button type="button" class="btn btn-secondary btn-xs copy-tg-btn" style="flex-shrink: 0;" data-copy="tailscale up --advertise-exit-node --accept-routes" title="Скопировать">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            if (titleEl) titleEl.textContent = "Информация о службе " + svcId;
+            bodyEl.innerHTML = `<pre style="font-size: 12px; color: #a5b4fc; background: #08070d; padding: 12px; border-radius: 6px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        }
+
+        // Attach copy buttons
+        bodyEl.querySelectorAll(".copy-tg-btn").forEach(btn => {
+            btn.addEventListener("click", () => copyToClipboard(btn.dataset.copy, btn));
+        });
+
+    } catch (e) {
+        bodyEl.innerHTML = `<div style="padding: 16px; color: #ef4444;"><p>Ошибка: ${escapeHtml(e.message)}</p></div>`;
+    }
+}
+
 // --- Event Listeners Initialization ---
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1169,6 +1430,23 @@ document.addEventListener("DOMContentLoaded", () => {
             routerHost = savedHost;
         }
     }
+
+    // Service Info Modal close listeners
+    const btnServiceInfoClose = document.getElementById("btn-service-info-close");
+    const btnServiceInfoOk = document.getElementById("btn-service-info-ok");
+    const serviceInfoModal = document.getElementById("service-info-modal");
+    if (btnServiceInfoClose) btnServiceInfoClose.addEventListener("click", hideServiceInfoModal);
+    if (btnServiceInfoOk) btnServiceInfoOk.addEventListener("click", hideServiceInfoModal);
+    if (serviceInfoModal) {
+        serviceInfoModal.addEventListener("click", (e) => {
+            if (e.target === serviceInfoModal) hideServiceInfoModal();
+        });
+    }
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && serviceInfoModal && serviceInfoModal.classList.contains("active")) {
+            hideServiceInfoModal();
+        }
+    });
 
     // Connect button
     if (btnConnect) btnConnect.addEventListener("click", handleConnect);
