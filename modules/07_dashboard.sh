@@ -43,6 +43,8 @@ else
     opkg update >/dev/null 2>&1
 fi
 opkg install $DEPS >/dev/null 2>&1
+# Выравниваем базовые пакеты python3 при обновлении со старого Entware (например, 3.13 -> 3.14)
+opkg upgrade python3-base python3-light python3-codecs python3-email python3-logging python3-urllib python3-openssl >/dev/null 2>&1 || true
 opkg install --force-overwrite ttyd >/dev/null 2>&1 || true
 
 # 3. Подготовка директорий
