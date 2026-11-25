@@ -488,7 +488,7 @@ printf "${CYAN}--- Быстрая проверка сервисов (IPv4 с р�
 for site in "YouTube|https://www.youtube.com" "Instagram|https://www.instagram.com" "ChatGPT|https://chatgpt.com"; do
     s_name=$(echo "$site" | cut -d'|' -f1)
     s_url=$(echo "$site" | cut -d'|' -f2)
-    s_code=$(curl -4 -s -o /dev/null -w "%{http_code}" --max-time 8 "$s_url" 2>/dev/null)
+    s_code=$(curl -4 -I -s -o /dev/null -w "%{http_code}" --max-time 10 "$s_url" 2>/dev/null)
     if [ "$s_code" = "200" ] || [ "$s_code" = "301" ] || [ "$s_code" = "302" ] || [ "$s_code" = "403" ]; then
         printf "  %-12s ${GREEN}[OK] HTTP %s${NC}\n" "$s_name" "$s_code"
     else

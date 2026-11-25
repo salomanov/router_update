@@ -34,8 +34,8 @@ for spid in $(pgrep -f "router_api\.py" 2>/dev/null); do
 done
 sleep 1
 
-# 2. Установка зависимостей
-DEPS="python3-light python3-openssl python3-email python3-logging python3-urllib curl ca-certificates"
+# 2. Установка зависимостей (полный python3 включает subprocess и весь stdlib)
+DEPS="python3 python3-openssl curl ca-certificates"
 printf "${YELLOW}Проверка зависимостей...${NC}\n"
 if [ -x "/opt/scripts/opkg_update.py" ]; then
     python3 /opt/scripts/opkg_update.py >/dev/null 2>&1 || opkg update >/dev/null 2>&1
