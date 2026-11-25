@@ -340,7 +340,7 @@ fi
 # 7. Первичное наполнение IP-сетов и запуск netfilter
 printf "${YELLOW}[6/6] Инициализация IPSET и применение правил фаервола...${NC}\n"
 /opt/scripts/update_ipsets.sh >/dev/null 2>&1 || true
-/opt/etc/ndm/netfilter.d/010-proxy.sh >/dev/null 2>&1 || true
+table=nat /opt/etc/ndm/netfilter.d/010-proxy.sh >/dev/null 2>&1 || true
 
 printf "\n${GREEN}[OK] Стек прозрачного проксирования успешно развернут!${NC}\n\n"
 show_status

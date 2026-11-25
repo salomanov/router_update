@@ -114,7 +114,7 @@ if [ "$PROFILE" = "hardened" ]; then
     # 4. Сетевое правило отсечки клиентского QUIC
     if fetch_file "configs/ndm/020-block-quic.sh" "/opt/etc/ndm/netfilter.d/020-block-quic.sh"; then
         chmod +x /opt/etc/ndm/netfilter.d/020-block-quic.sh
-        sh /opt/etc/ndm/netfilter.d/020-block-quic.sh 2>/dev/null || true
+        table=filter type=iptables sh /opt/etc/ndm/netfilter.d/020-block-quic.sh 2>/dev/null || true
         printf "  [+] Netfilter 020-block-quic.sh активирован\n"
     fi
 

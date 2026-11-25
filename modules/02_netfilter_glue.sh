@@ -41,7 +41,7 @@ fetch "${REPO_RAW}/netfilter/020-block-quic.sh${CACHE_BUST}" /opt/etc/ndm/netfil
 # Активация правил в iptables
 [ -x "/opt/etc/ndm/netfilter.d/005-lan-fix.sh" ] && /opt/etc/ndm/netfilter.d/005-lan-fix.sh >/dev/null 2>&1 || true
 [ -x "/opt/etc/ndm/netfilter.d/015-l2tp.sh" ] && /opt/etc/ndm/netfilter.d/015-l2tp.sh >/dev/null 2>&1 || true
-[ -x "/opt/etc/ndm/netfilter.d/020-block-quic.sh" ] && /opt/etc/ndm/netfilter.d/020-block-quic.sh >/dev/null 2>&1 || true
+[ -x "/opt/etc/ndm/netfilter.d/020-block-quic.sh" ] && table=filter type=iptables /opt/etc/ndm/netfilter.d/020-block-quic.sh >/dev/null 2>&1 || true
 
 printf "${GREEN}[OK] Сетевой клей успешно установлен и активирован!${NC}\n\n"
 exit 0
