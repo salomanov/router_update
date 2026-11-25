@@ -23,12 +23,16 @@ fi
 
 export PATH="/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin"
 
-# 1. Остановка старых процессов
+# 1. Остановка старых процессов (включая старые версии gpanel без pidfile)
 if [ -f "/opt/var/run/router-api.pid" ]; then
     OLD_PID=$(cat "/opt/var/run/router-api.pid" 2>/dev/null)
     [ -n "$OLD_PID" ] && kill "$OLD_PID" 2>/dev/null || true
     rm -f "/opt/var/run/router-api.pid"
 fi
+for spid in $(pgrep -f "router_api\.py" 2>/dev/null); do
+    kill "$spid" 2>/dev/null || true
+done
+sleep 1
 
 # 2. Установка зависимостей
 DEPS="python3-light python3-openssl python3-email python3-logging python3-urllib curl ca-certificates"

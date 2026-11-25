@@ -18,7 +18,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting atomic ipset update..."
 # ==========================================
 # 1. AI_NETS (ChatGPT, OpenAI, Gemini, Claude)
 # ==========================================
-AI_DOMAINS="chatgpt.com ab.chatgpt.com ws.chatgpt.com auth.openai.com auth0.openai.com openai.com api.openai.com oaistatic.com cdn.oaistatic.com oaiusercontent.com files.oaiusercontent.com gemini.google.com aistudio.google.com alkalimakersuite-pa.clients6.google.com generativelanguage.googleapis.com claude.ai anthropic.com"
+AI_DOMAINS="a.claude.ai ab.chatgpt.com accountcapabilities-pa.googleapis.com agent.api5.cursor.sh agentn.api5.cursor.sh agentn.global.api5.cursor.sh ai.google.dev aisandbox-pa.googleapis.com aistudio.google.com alkalimakersuite-pa.clients6.google.com android.chat.openai.com anthropic.com antigravity-unleash.goog api.anthropic.com api.chatgpt.com api.cline.bot api.manus.im api.openai.com api2.cursor.sh api2direct.cursor.sh api3.cursor.sh api4.cursor.sh app.cline.bot assets-proxy.anthropic.com assets.claude.ai auth.openai.com auth0.openai.com aw.api.openai.com bridge.claudeusercontent.com cdn-1.strava.com cdn.oaistatic.com chatgpt.com claude.ai claude.com claude.site claudeusercontent.com clientservices.googleapis.com cline.bot cloudcode-pa.googleapis.com code.claude.com console.anthropic.com copilot.microsoft.com daily-cloudcode-pa.googleapis.com devin.ai dns-ai.ru docs.anthropic.com docs.claude.com downloads.claude.ai downloads.claude.com files.oaiusercontent.com flow.google.com gemini.google gemini.google.com generativelanguage.googleapis.com gql.twitch.tv graphql.strava.com grok.com jules.google.com labs.google lh3.googleusercontent.com manus.im mcp-proxy.anthropic.com notebook.google.com notebooklm.google.com oaistatic.com oaiusercontent.com openai.com optimizationguide-pa.googleapis.com platform.claude.com prod.authentication.cursor.sh repo42.cursor.sh robinfrontend-pa.googleapis.com s-cdn.anthropic.com status.anthropic.com status.claude.com strava.com support.anthropic.com support.claude.com tokenharbor.ai us-only.gcpp.cursor.sh usher.ttvnw.net webrtc.chatgpt.com ws.chatgpt.com www.anthropic.com www.claude.ai www.claude.com www.claudeusercontent.com www.copilot.com www.genspark.ai www.manus.im www.strava.com"
 
 ipset create AI_NETS hash:ip -exist
 ipset create AI_NETS_TMP hash:ip -exist
@@ -37,6 +37,11 @@ for d in $AI_DOMAINS; do
         esac
         ipset add AI_NETS_TMP "$ip" -exist 2>/dev/null
     done
+done
+
+# Exclude youtubei.googleapis.com IPs so YouTube API and googlevideo.com share the same WAN IP (prevents Playback ID error)
+for ytip in $(nslookup youtubei.googleapis.com 127.0.0.1 2>/dev/null | awk '/^Address [0-9]+:/{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'); do
+    ipset del AI_NETS_TMP "$ytip" 2>/dev/null
 done
 
 TMP_COUNT=$(ipset list AI_NETS_TMP | grep -E '^[0-9]+\.' | wc -l)

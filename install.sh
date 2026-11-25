@@ -404,6 +404,26 @@ EOF
     printf "${GREEN}[OK] Swap 512 MB успешно создан и подключен (/opt/swapfile).${NC}\n"
 fi
 
+# --- Автобэкап текущих конфигов перед обновлением ---
+backup_current_state() {
+    BK_DIR="/opt/backup/pre_update_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BK_DIR"
+    printf "\n${YELLOW}>>> Создание резервной копии текущих конфигов: %s${NC}\n" "$BK_DIR"
+    if command -v ndmc >/dev/null 2>&1; then
+        ndmc -c "show running-config" > "$BK_DIR/running-config.txt" 2>/dev/null || true
+    fi
+    [ -f "/opt/etc/nfqws2/nfqws2.conf" ] && cp -f /opt/etc/nfqws2/nfqws2.conf "$BK_DIR/" 2>/dev/null || true
+    [ -f "/opt/etc/ytggc_dead.list" ] && cp -f /opt/etc/ytggc_dead.list "$BK_DIR/" 2>/dev/null || true
+    [ -f "/opt/etc/sing-box/config.json" ] && cp -f /opt/etc/sing-box/config.json "$BK_DIR/sing-box.config.json" 2>/dev/null || true
+    if [ -d "/opt/etc/ndm/netfilter.d" ]; then
+        mkdir -p "$BK_DIR/netfilter.d"
+        cp -f /opt/etc/ndm/netfilter.d/*.sh "$BK_DIR/netfilter.d/" 2>/dev/null || true
+    fi
+    printf "${GREEN}[OK] Бэкап сохранен в %s${NC}\n" "$BK_DIR"
+}
+
+backup_current_state
+
 # --- Запуск выбранных модулей ---
 ERRORS=0
 
@@ -461,6 +481,24 @@ else
     printf "${YELLOW}      УСТАНОВКА ЗАВЕРШЕНА С ОШИБКАМИ (ошибок: %d)         ${NC}\n" "$ERRORS"
 fi
 printf "${CYAN}==========================================================${NC}\n"
+
+# --- Итоговая таблица состояния и быстрая проверка доступности ---
+preflight_scan
+printf "${CYAN}--- Быстрая проверка сервисов (с роутера) ---${NC}\n"
+for site in "YouTube|https://www.youtube.com" "Instagram|https://www.instagram.com" "ChatGPT|https://chatgpt.com"; do
+    s_name=$(echo "$site" | cut -d'|' -f1)
+    s_url=$(echo "$site" | cut -d'|' -f2)
+    s_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "$s_url" 2>/dev/null)
+    if [ "$s_code" = "200" ] || [ "$s_code" = "301" ] || [ "$s_code" = "302" ] || [ "$s_code" = "403" ]; then
+        printf "  %-12s ${GREEN}[OK] HTTP %s${NC}\n" "$s_name" "$s_code"
+    else
+        printf "  %-12s ${YELLOW}[WARN] HTTP %s${NC}\n" "$s_name" "${s_code:-000}"
+    fi
+done
+if ! pidof usque >/dev/null 2>&1; then
+    printf "  ${YELLOW}[!] Внимание: usque (:8480) не запущен — проверьте /opt/etc/init.d/S99usque для работы Instagram/AI.${NC}\n"
+fi
+printf "\n"
 
 [ $DO_PANEL -eq 1 ] && printf "👉 Панель управления: ${GREEN}http://%s:8089/${NC} (admin / Salomanov)\n" "$LAN_IP"
 [ $DO_PANEL -eq 1 ] && printf "👉 Веб-терминал PuTTY: ${GREEN}http://%s:7681/${NC} (после входа в панель)\n" "$LAN_IP"

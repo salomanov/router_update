@@ -112,6 +112,15 @@ fi
 # 3. Конфигурация sing-box
 printf "${YELLOW}[2/6] Развертывание конфигурации sing-box (/opt/etc/sing-box/config.json)...${NC}\n"
 mkdir -p /opt/etc/sing-box
+
+# Автоопределение адреса прослушивания usque (:8480) или LAN IP роутера
+USQUE_IP=$(netstat -ltn 2>/dev/null | awk '/:8480 /{print $4}' | cut -d: -f1 | head -n1)
+if [ -z "$USQUE_IP" ] || [ "$USQUE_IP" = "0.0.0.0" ] || [ "$USQUE_IP" = "::" ]; then
+    USQUE_IP=$(ip -4 addr show br0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+fi
+[ -z "$USQUE_IP" ] && USQUE_IP=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+[ -z "$USQUE_IP" ] && USQUE_IP="192.168.1.1"
+
 if [ -f "$SCRIPT_DIR/../configs/sing-box/config.json" ]; then
     cp -f "$SCRIPT_DIR/../configs/sing-box/config.json" /opt/etc/sing-box/config.json
 elif [ -f "./configs/sing-box/config.json" ]; then
@@ -122,7 +131,7 @@ fi
 
 # Фолбэк генерация конфига, если файл отсутствует
 if [ ! -s "/opt/etc/sing-box/config.json" ]; then
-    cat << 'EOF_SB' > /opt/etc/sing-box/config.json
+    cat << EOF_SB > /opt/etc/sing-box/config.json
 {
   "log": {
     "level": "info",
@@ -147,7 +156,7 @@ if [ ! -s "/opt/etc/sing-box/config.json" ]; then
     {
       "type": "socks",
       "tag": "usque-out",
-      "server": "192.168.1.1",
+      "server": "${USQUE_IP}",
       "server_port": 8480
     },
     {
@@ -162,10 +171,19 @@ if [ ! -s "/opt/etc/sing-box/config.json" ]; then
         "outbound": "direct"
       }
     ],
-    "auto_detect_interface": true
+    "final": "usque-out"
   }
 }
 EOF_SB
+else
+    sed -i -E "s#\"server\": \"[0-9.]+\"#\"server\": \"${USQUE_IP}\"#" /opt/etc/sing-box/config.json
+fi
+
+# Лечение известного бага LD_LIBRARY_PATH в старом S99usque (вызывал флаппинг curl exit 4)
+if [ -f "/opt/etc/init.d/S99usque" ] && grep -q "LD_LIBRARY_PATH" /opt/etc/init.d/S99usque 2>/dev/null; then
+    sed -i '/LD_LIBRARY_PATH/d' /opt/etc/init.d/S99usque
+    /opt/etc/init.d/S99usque restart >/dev/null 2>&1 || true
+    printf "  [+] Удален конфликтующий LD_LIBRARY_PATH из S99usque\n"
 fi
 
 # 4. Развертывание NDM хука 010-proxy.sh
@@ -202,6 +220,19 @@ if ! grep -q "update_ipsets.sh" "$CRON_FILE" 2>/dev/null; then
     printf "Добавлена задача обновления IPSET в cron: каждые 4 часа.\n"
 fi
 
+# Автозапуск наполнения IPSET при старте роутера (S98ipsets, задержка 15с в фоне)
+cat << 'EOF_IPSETS' > /opt/etc/init.d/S98ipsets
+#!/bin/sh
+case "$1" in
+    start|restart)
+        (sleep 15 && /opt/scripts/update_ipsets.sh) </dev/null >/dev/null 2>&1 &
+        ;;
+    *)
+        ;;
+esac
+EOF_IPSETS
+chmod +x /opt/etc/init.d/S98ipsets
+
 # 6. Запуск службы sing-box
 printf "${YELLOW}[5/6] Запуск службы sing-box...${NC}\n"
 # Создаем надежный init-скрипт S99sing-box, если отсутствует
@@ -212,6 +243,7 @@ ENABLED=yes
 PROCS=sing-box
 DESC=$PROCS
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export GOMEMLIMIT=32MiB
 CONF=/opt/etc/sing-box/config.json
 
 start() {
@@ -245,6 +277,19 @@ if [ -x "/opt/etc/init.d/S99sing-box" ]; then
     /opt/etc/init.d/S99sing-box restart >/dev/null 2>&1
 elif [ -x "/opt/etc/init.d/S52sing-box" ]; then
     /opt/etc/init.d/S52sing-box restart >/dev/null 2>&1
+fi
+
+# Отключаем устаревший redsocks, если sing-box успешно поднял :10080
+sleep 1
+if netstat -tuln 2>/dev/null | grep -q ':10080 '; then
+    for rinit in /opt/etc/init.d/S23redsocks /opt/etc/init.d/K23redsocks; do
+        if [ -f "$rinit" ]; then
+            "$rinit" stop >/dev/null 2>&1 || true
+            mkdir -p /opt/backup
+            mv -f "$rinit" "/opt/backup/$(basename "$rinit").disabled" 2>/dev/null || true
+        fi
+    done
+    killall redsocks 2>/dev/null || true
 fi
 
 # 7. Первичное наполнение IP-сетов и запуск netfilter

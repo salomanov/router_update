@@ -105,7 +105,7 @@ if [ "$PROFILE" = "hardened" ]; then
     printf "  [+] Бинарные блобы desync (включая Kyber) синхронизированы\n"
 
     # 3. Списки доменов
-    for lst in user.list exclude.list ipset.list ipset_exclude.list; do
+    for lst in user.list exclude.list ipset.list ipset_exclude.list youtube.list; do
         fetch_file "configs/lists/$lst" "/opt/etc/nfqws2/lists/$lst"
     done
     touch /opt/etc/nfqws2/lists/auto.list
