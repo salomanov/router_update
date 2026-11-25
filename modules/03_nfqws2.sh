@@ -109,7 +109,15 @@ if [ "$PROFILE" = "hardened" ]; then
         fetch_file "configs/lists/$lst" "/opt/etc/nfqws2/lists/$lst"
     done
     touch /opt/etc/nfqws2/lists/auto.list
-    printf "  [+] Списки доменов развернуты\n"
+    # Санация нулевых байтов (\x00) после обрывов питания (защита nfqws2-ui от PHP inet_pton ValueError)
+    for f in /opt/etc/nfqws2/lists/*; do
+        [ -f "$f" ] || continue
+        if [ "$(tr -cd '\0' < "$f" | wc -c)" -gt 0 ]; then
+            tr -d '\0' < "$f" > "${f}.tmp" && mv -f "${f}.tmp" "$f"
+        fi
+    done
+    rm -rf /tmp/nfqws-ui* /opt/tmp/nfqws-ui* /opt/var/cache/nfqws-ui* 2>/dev/null || true
+    printf "  [+] Списки доменов развернуты (и очищены от битых байтов)\n"
 
     # 4. Сетевое правило отсечки клиентского QUIC
     if fetch_file "configs/ndm/020-block-quic.sh" "/opt/etc/ndm/netfilter.d/020-block-quic.sh"; then
