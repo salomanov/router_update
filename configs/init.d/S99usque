@@ -1,0 +1,230 @@
+#!/bin/sh
+
+# --- Configuration ---
+PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+export GOMEMLIMIT=48MiB
+export GOGC=100
+
+PROG=/opt/usr/bin/usque
+CONFIG_FILE=/opt/etc/usque/config.json
+DESC="Usque SOCKS5"
+PIDFILE="/opt/var/run/usque.pid"
+MONITOR_PIDFILE="/opt/var/run/usque_monitor.pid"
+
+BIND_IP=$(ip -4 addr show br0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+[ -z "$BIND_IP" ] && BIND_IP=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+[ -z "$BIND_IP" ] && BIND_IP="192.168.1.1"
+
+PROXY_INIT="/opt/etc/init.d/S99sing-box"
+MONITOR_LOG="/tmp/usque_monitor.log"
+SNI_STATE_FILE="/tmp/usque_active_sni"
+
+# Neutral SNI failover pool
+SNI_POOL="cdnjs.cloudflare.com vk.com 4pda.to www.google.com static.twitchcdn.net cdn.jsdelivr.net"
+CURRENT_SNI="cdnjs.cloudflare.com"
+
+log_mon() {
+  if [ -f "$MONITOR_LOG" ]; then
+    sz=$(wc -c < "$MONITOR_LOG" 2>/dev/null)
+    if [ -n "$sz" ] && [ "$sz" -gt 102400 ]; then
+      mv -f "$MONITOR_LOG" "${MONITOR_LOG}.old" 2>/dev/null
+    fi
+  fi
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$MONITOR_LOG"
+}
+
+next_sni() {
+  cur="$1"
+  found=0
+  first=""
+  for s in $SNI_POOL; do
+    [ -z "$first" ] && first="$s"
+    if [ "$found" -eq 1 ]; then
+      echo "$s"
+      return 0
+    fi
+    [ "$s" = "$cur" ] && found=1
+  done
+  echo "$first"
+}
+
+is_running() {
+  [ -f "$PIDFILE" ] && read -r pid < "$PIDFILE" && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+is_monitor_running() {
+  [ -f "$MONITOR_PIDFILE" ] && read -r mpid < "$MONITOR_PIDFILE" && [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null
+}
+
+status_service() {
+  sni="$CURRENT_SNI"
+  [ -f "$SNI_STATE_FILE" ] && sni="$(cat "$SNI_STATE_FILE")"
+  if is_running; then
+    printf "%s is running (PID %s, SNI %s, bind %s:8480).\n" "$DESC" "$(cat "$PIDFILE")" "$sni" "$BIND_IP"
+  else
+    printf "%s is stopped.\n" "$DESC"
+  fi
+  if is_monitor_running; then
+    printf "Monitor is running (PID %s).\n" "$(cat "$MONITOR_PIDFILE")"
+  else
+    printf "Monitor is stopped.\n"
+  fi
+}
+
+wait_for_ip() {
+  RETRIES=30
+  while [ $RETRIES -gt 0 ]; do
+    if ip addr show | grep -q "inet $BIND_IP"; then
+      return 0
+    fi
+    sleep 1
+    RETRIES=$((RETRIES - 1))
+  done
+  return 0
+}
+
+start_usque_process() {
+  sni="${1:-$CURRENT_SNI}"
+  if is_running; then
+    return 0
+  fi
+  if [ ! -f "$CONFIG_FILE" ]; then
+    printf "Error: Config missing at %s.\n" "$CONFIG_FILE"
+    return 1
+  fi
+  mkdir -p /opt/var/run
+  echo "$sni" > "$SNI_STATE_FILE"
+  args="-c $CONFIG_FILE socks --http2 --always-reconnect -l --system-dns -S -b $BIND_IP -p 8480 -d 1.1.1.1 -d 8.8.8.8 -s $sni"
+  start-stop-daemon -S -q -p "$PIDFILE" -x "$PROG" -b -m -- $args
+  sleep 2
+  is_running
+}
+
+start() {
+  if is_running; then
+    printf "%s is already running.\n" "$DESC"
+  else
+    wait_for_ip
+    printf "Starting %s... " "$DESC"
+    if start_usque_process "$CURRENT_SNI"; then
+      printf "done. (PID %s, SNI %s)\n" "$(cat "$PIDFILE")" "$CURRENT_SNI"
+    else
+      printf "failed.\n"
+    fi
+  fi
+  start_monitor
+}
+
+stop() {
+  stop_monitor
+  printf "Stopping %s: " "$DESC"
+  if is_running; then
+    start-stop-daemon -K -q -p "$PIDFILE" -x "$PROG"
+    RETRY=5
+    while [ $RETRY -gt 0 ] && is_running; do
+      sleep 1
+      RETRY=$((RETRY - 1))
+    done
+    if is_running; then
+      start-stop-daemon -K -q -p "$PIDFILE" -x "$PROG" -s KILL
+    fi
+    printf "done.\n"
+  else
+    printf "not running.\n"
+  fi
+  rm -f "$PIDFILE"
+}
+
+watchdog_loop() {
+  FAIL_COUNT=0
+  active_sni="$CURRENT_SNI"
+  [ -f "$SNI_STATE_FILE" ] && active_sni="$(cat "$SNI_STATE_FILE")"
+
+  while true; do
+    sleep 60
+
+    if ! is_running; then
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      log_mon "[Watchdog] Usque process dead. Restarting with SNI=$active_sni..."
+      start_usque_process "$active_sni"
+      continue
+    fi
+
+    HTTP_CODE=$(curl -4 -s -o /dev/null -w "%{http_code}" --max-time 20 -x "socks5h://$BIND_IP:8480" https://cp.cloudflare.com/generate_204 2>/dev/null)
+    if [ "$HTTP_CODE" = "204" ]; then
+      FAIL_COUNT=0
+    else
+      HTTP_CODE_FALLBACK=$(curl -4 -s -o /dev/null -w "%{http_code}" --max-time 20 -x "socks5h://$BIND_IP:8480" https://www.google.com/generate_204 2>/dev/null)
+      if [ "$HTTP_CODE_FALLBACK" = "204" ]; then
+        FAIL_COUNT=0
+      else
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        log_mon "[Watchdog] Dual health probe failed (CF: $HTTP_CODE, Google: $HTTP_CODE_FALLBACK, SNI: $active_sni, fail $FAIL_COUNT/8)"
+        if [ "$FAIL_COUNT" -ge 8 ]; then
+          active_sni="$(next_sni "$active_sni")"
+          log_mon "[Watchdog] 8 consecutive fails. Rotating SNI -> $active_sni and restarting Usque..."
+
+          if is_running; then
+            start-stop-daemon -K -q -p "$PIDFILE" -x "$PROG"
+            RETRY=5
+            while [ $RETRY -gt 0 ] && is_running; do
+              sleep 1
+              RETRY=$((RETRY - 1))
+            done
+            if is_running; then
+              start-stop-daemon -K -q -p "$PIDFILE" -x "$PROG" -s KILL 2>/dev/null
+            fi
+            rm -f "$PIDFILE"
+          fi
+          sleep 2
+          start_usque_process "$active_sni"
+          FAIL_COUNT=0
+
+          if [ -x "$PROXY_INIT" ]; then
+            "$PROXY_INIT" restart >/dev/null 2>&1
+          fi
+        fi
+      fi
+    fi
+  done
+}
+
+start_monitor() {
+  if is_monitor_running; then
+    return
+  fi
+  printf "Starting background proxy monitor...\n"
+  (watchdog_loop) </dev/null >/dev/null 2>&1 &
+  echo $! > "$MONITOR_PIDFILE"
+}
+
+stop_monitor() {
+  if [ -f "$MONITOR_PIDFILE" ]; then
+    mpid=$(cat "$MONITOR_PIDFILE")
+    if [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null; then
+      printf "Stopping proxy monitor: "
+      kill -9 "$mpid" 2>/dev/null
+      printf "done.\n"
+    fi
+    rm -f "$MONITOR_PIDFILE"
+  fi
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  status) status_service ;;
+  watchdog) watchdog_loop ;;
+  restart)
+    stop
+    start
+    if [ -x "$PROXY_INIT" ]; then
+      "$PROXY_INIT" restart >/dev/null 2>&1
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+    ;;
+esac

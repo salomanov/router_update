@@ -109,6 +109,58 @@ if [ -n "$need_pkg" ]; then
     done
 fi
 
+# 2b. Автоустановка и регистрация Usque (MASQUE :8480) для mipsel, если отсутствует
+printf "${YELLOW}[1.5/6] Проверка и установка апстрима Usque (:8480)...${NC}\n"
+mkdir -p /opt/usr/bin /opt/etc/usque /opt/etc/init.d
+if [ ! -x "/opt/usr/bin/usque" ]; then
+    printf "Скачивание бинарника usque (mipsel)...\n"
+    if [ -f "$SCRIPT_DIR/../bin/usque-mipsel.gz" ]; then
+        gunzip -c "$SCRIPT_DIR/../bin/usque-mipsel.gz" > /opt/usr/bin/usque 2>/dev/null || true
+    elif [ -f "./bin/usque-mipsel.gz" ]; then
+        gunzip -c "./bin/usque-mipsel.gz" > /opt/usr/bin/usque 2>/dev/null || true
+    else
+        curl -fsSL --max-time 90 "${REPO_RAW}/bin/usque-mipsel.gz${CACHE_BUST}" 2>/dev/null | gunzip > /opt/usr/bin/usque 2>/dev/null || true
+    fi
+    if [ -s "/opt/usr/bin/usque" ]; then
+        chmod +x /opt/usr/bin/usque
+        printf "  [+] Бинарник /opt/usr/bin/usque установлен\n"
+    else
+        rm -f /opt/usr/bin/usque
+        printf "  ${RED}[!] Не удалось скачать usque-mipsel.gz${NC}\n"
+    fi
+fi
+
+if [ -x "/opt/usr/bin/usque" ] && [ ! -s "/opt/etc/usque/config.json" ]; then
+    printf "Регистрация нового аккаунта Cloudflare WARP (MASQUE) для usque...\n"
+    GOMEMLIMIT=48MiB /opt/usr/bin/usque -c /opt/etc/usque/config.json register -a >/dev/null 2>&1 || true
+    if [ -s "/opt/etc/usque/config.json" ]; then
+        printf "  [+] Конфиг /opt/etc/usque/config.json создан\n"
+    else
+        printf "  ${YELLOW}[!] Авторегистрация usque не удалась (попробуйте вручную: usque -c /opt/etc/usque/config.json register -a)${NC}\n"
+    fi
+fi
+
+if [ ! -x "/opt/etc/init.d/S99usque" ]; then
+    if [ -f "$SCRIPT_DIR/../configs/init.d/S99usque" ]; then
+        cp -f "$SCRIPT_DIR/../configs/init.d/S99usque" /opt/etc/init.d/S99usque
+    elif [ -f "./configs/init.d/S99usque" ]; then
+        cp -f "./configs/init.d/S99usque" /opt/etc/init.d/S99usque
+    else
+        curl -fsSL --max-time 30 -o /opt/etc/init.d/S99usque "${REPO_RAW}/configs/init.d/S99usque${CACHE_BUST}" 2>/dev/null || true
+    fi
+    chmod +x /opt/etc/init.d/S99usque 2>/dev/null || true
+fi
+
+# Лечение известного бага LD_LIBRARY_PATH в старом S99usque (вызывал флаппинг curl exit 4)
+if [ -f "/opt/etc/init.d/S99usque" ] && grep -q "LD_LIBRARY_PATH" /opt/etc/init.d/S99usque 2>/dev/null; then
+    sed -i '/LD_LIBRARY_PATH/d' /opt/etc/init.d/S99usque
+    /opt/etc/init.d/S99usque restart >/dev/null 2>&1 || true
+    printf "  [+] Удален конфликтующий LD_LIBRARY_PATH из S99usque\n"
+elif [ -x "/opt/etc/init.d/S99usque" ] && ! pidof usque >/dev/null 2>&1; then
+    /opt/etc/init.d/S99usque start >/dev/null 2>&1 || true
+    sleep 2
+fi
+
 # 3. Конфигурация sing-box
 printf "${YELLOW}[2/6] Развертывание конфигурации sing-box (/opt/etc/sing-box/config.json)...${NC}\n"
 mkdir -p /opt/etc/sing-box
@@ -177,13 +229,6 @@ if [ ! -s "/opt/etc/sing-box/config.json" ]; then
 EOF_SB
 else
     sed -i -E "s#\"server\": \"[0-9.]+\"#\"server\": \"${USQUE_IP}\"#" /opt/etc/sing-box/config.json
-fi
-
-# Лечение известного бага LD_LIBRARY_PATH в старом S99usque (вызывал флаппинг curl exit 4)
-if [ -f "/opt/etc/init.d/S99usque" ] && grep -q "LD_LIBRARY_PATH" /opt/etc/init.d/S99usque 2>/dev/null; then
-    sed -i '/LD_LIBRARY_PATH/d' /opt/etc/init.d/S99usque
-    /opt/etc/init.d/S99usque restart >/dev/null 2>&1 || true
-    printf "  [+] Удален конфликтующий LD_LIBRARY_PATH из S99usque\n"
 fi
 
 # 4. Развертывание NDM хука 010-proxy.sh
