@@ -108,8 +108,9 @@ function setToken(token) {
     }
 }
 
-function showLoginModal(errorText = "") {
+function showLoginModal(errorText = "", clearPassword = false) {
     if (loginModal) {
+        const wasActive = loginModal.classList.contains("active");
         loginModal.classList.add("active");
         if (loginErrorMsg) {
             if (errorText) {
@@ -119,7 +120,7 @@ function showLoginModal(errorText = "") {
                 loginErrorMsg.style.display = "none";
             }
         }
-        if (loginPasswordInput) {
+        if (loginPasswordInput && (!wasActive || clearPassword)) {
             loginPasswordInput.value = "";
             loginPasswordInput.focus();
         }
@@ -147,9 +148,11 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(url, options);
 
     if (response.status === 401) {
+        stopAutoRefresh();
         setToken("");
         updateAuthUI(false);
-        showLoginModal("Требуется авторизация");
+        setConnectionState("offline");
+        showLoginModal("Требуется авторизация", false);
         throw new Error("Unauthorized (401)");
     }
 
@@ -201,12 +204,12 @@ async function submitLogin(username, password) {
             return true;
         } else {
             const err = data.error || "Неверный логин или пароль";
-            showLoginModal(err);
+            showLoginModal(err, true);
             logToConsole(`Ошибка авторизации: ${err}`, "error");
             return false;
         }
     } catch (e) {
-        showLoginModal(`Сетевая ошибка: ${e.message}`);
+        showLoginModal(`Сетевая ошибка: ${e.message}`, false);
         logToConsole(`Сбой подключения при авторизации: ${e.message}`, "error");
         return false;
     }
