@@ -101,22 +101,30 @@ if [ -n "$DEPS_NEEDED" ]; then
     opkg install $DEPS_NEEDED >/dev/null 2>&1 || true
 fi
 
-# 3. Поиск пакета nfqws2-ui (офлайн / локальный кэш / сеть)
+# 3. Обновление (если уже установлен) или поиск пакета nfqws2-ui (локальный кэш / сеть)
 SCRIPT_DIR="$(dirname "$0")"
-IPK_TARGET="/opt/tmp/nfqws2-ui.ipk"
 INSTALLED=0
 
-# Проверка локальных путей к пакету
-LOCAL_IPK=""
-if [ -f "$SCRIPT_DIR/../packages/nfqws2-ui_1.34.2-1_all_entware.ipk" ]; then
-    LOCAL_IPK="$SCRIPT_DIR/../packages/nfqws2-ui_1.34.2-1_all_entware.ipk"
-elif [ -f "/opt/updates_cache/packages/nfqws2-ui_1.34.2-1_all_entware.ipk" ]; then
-    LOCAL_IPK="/opt/updates_cache/packages/nfqws2-ui_1.34.2-1_all_entware.ipk"
-elif [ -f "/opt/tmp/nfqws2-ui_1.34.2-1_all_entware.ipk" ]; then
-    LOCAL_IPK="/opt/tmp/nfqws2-ui_1.34.2-1_all_entware.ipk"
+if [ -x "/opt/sbin/nfqws-ui-setup" ]; then
+    printf "${CYAN}[UPDATE] Обновление установленного nfqws2-ui через nfqws-ui-setup...${NC}\n"
+    if /opt/sbin/nfqws-ui-setup update; then
+        INSTALLED=1
+    fi
 fi
 
-if [ -n "$LOCAL_IPK" ]; then
+# Проверка локальных путей к пакету (любая версия nfqws2-ui_*_all_entware.ipk)
+LOCAL_IPK=""
+if [ $INSTALLED -eq 0 ]; then
+    for dir in "$SCRIPT_DIR/../packages" "/opt/updates_cache/packages" "/opt/tmp"; do
+        cand=$(ls -t "$dir"/nfqws2-ui_*_all_entware.ipk 2>/dev/null | head -n1)
+        if [ -n "$cand" ] && [ -f "$cand" ]; then
+            LOCAL_IPK="$cand"
+            break
+        fi
+    done
+fi
+
+if [ $INSTALLED -eq 0 ] && [ -n "$LOCAL_IPK" ]; then
     printf "${GREEN}[LOCAL] Установка nfqws2-ui из локального пакета: %s${NC}\n" "$LOCAL_IPK"
     if opkg install "$LOCAL_IPK"; then
         INSTALLED=1
@@ -128,8 +136,9 @@ if [ $INSTALLED -eq 0 ]; then
     printf "${CYAN}[ONLINE] Загрузка nfqws2-ui из официального репозитория zemidala/nfqws2-ui...${NC}\n"
     RELEASE_URL="https://github.com/zemidala/nfqws2-ui/releases/latest/download/install.sh"
     if curl -fsSL --connect-timeout 10 --max-time 60 -o /opt/tmp/zemidala_install.sh "$RELEASE_URL"; then
-        sh /opt/tmp/zemidala_install.sh
-        INSTALLED=$?
+        if sh /opt/tmp/zemidala_install.sh; then
+            INSTALLED=1
+        fi
         rm -f /opt/tmp/zemidala_install.sh
     fi
 fi

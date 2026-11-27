@@ -126,12 +126,15 @@ if [ "$PROFILE" = "hardened" ]; then
         printf "  [+] Netfilter 020-block-quic.sh активирован\n"
     fi
 
-    # 5. Демон мгновенного сброса мёртвых GGC IP (S99ytggc)
+    # 5. Демон мгновенного сброса мёртвых GGC IP (S99ytggc + NDM hook 015-ytggc.sh)
     fetch_file "configs/ytggc_dead.list" "/opt/etc/ytggc_dead.list"
+    if fetch_file "configs/ndm/015-ytggc.sh" "/opt/etc/ndm/netfilter.d/015-ytggc.sh"; then
+        chmod +x /opt/etc/ndm/netfilter.d/015-ytggc.sh
+    fi
     if fetch_file "configs/init.d/S99ytggc" "/opt/etc/init.d/S99ytggc"; then
         chmod +x /opt/etc/init.d/S99ytggc
         /opt/etc/init.d/S99ytggc restart >/dev/null 2>&1 || true
-        printf "  [+] Служба S99ytggc развернута и активирована\n"
+        printf "  [+] Служба S99ytggc и хук 015-ytggc.sh развернуты и активированы\n"
     fi
 
 else
